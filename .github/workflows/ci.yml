@@ -8,6 +8,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  # Pinned Rust toolchain. Bump this deliberately (and fix any new clippy/rustfmt
+  # findings in the same PR) rather than tracking @stable, so a new compiler
+  # release can't turn CI red without a code change. Keep >= the gui feature's
+  # MSRV (egui 0.33 needs 1.88).
+  RUST_VERSION: "1.96.0"
 
 jobs:
   core:
@@ -15,8 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
 
@@ -43,8 +49,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
