@@ -244,13 +244,12 @@ impl FrameWatchApp {
 }
 
 impl eframe::App for FrameWatchApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-        self.update_texture(&ctx);
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_texture(ctx);
 
-        egui::Panel::left("picker")
-            .exact_size(260.0)
-            .show_inside(ui, |ui| {
+        egui::SidePanel::left("picker")
+            .exact_width(260.0)
+            .show(ctx, |ui| {
                 ui.heading("Windows");
                 if ui.button("⟳ Refresh").clicked() {
                     self.refresh_windows();
@@ -274,9 +273,9 @@ impl eframe::App for FrameWatchApp {
                 });
             });
 
-        egui::Panel::right("config")
-            .exact_size(260.0)
-            .show_inside(ui, |ui| {
+        egui::SidePanel::right("config")
+            .exact_width(260.0)
+            .show(ctx, |ui| {
                 ui.heading("Config");
                 ui.add(egui::Slider::new(&mut self.config.settle_ms, 50..=2000).text("settle ms"));
                 ui.add(
@@ -329,11 +328,11 @@ impl eframe::App for FrameWatchApp {
                 }
             });
 
-        egui::Panel::bottom("status").show_inside(ui, |ui| {
+        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.label(&self.status);
         });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ctx, |ui| {
             self.draw_preview(ui);
         });
 
@@ -341,10 +340,6 @@ impl eframe::App for FrameWatchApp {
         if self.capture_running {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
-    }
-
-    fn on_exit(&mut self) {
-        self.stop_preview();
     }
 }
 
