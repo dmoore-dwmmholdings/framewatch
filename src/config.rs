@@ -108,6 +108,10 @@ pub struct Config {
     pub min_emit_interval_ms: u64,
     /// Quiescence required to declare "settled", in milliseconds.
     pub settle_ms: u64,
+    /// Force a capture after this many ms of *sustained* activity that never
+    /// quiesces (e.g. a fullscreen video/animation), so long-running activity
+    /// still yields periodic frames. `0` disables. Default 5000.
+    pub max_active_ms: u64,
     /// `(cols, rows)` tile grid.
     pub tile_grid: (u16, u16),
     /// Per-tile luma delta to count a tile as changed.
@@ -142,6 +146,7 @@ impl Default for Config {
             fps_cap: 30,
             min_emit_interval_ms: 200,
             settle_ms: 350,
+            max_active_ms: 5000,
             tile_grid: (32, 18),
             tile_change_threshold: 12,
             meaningful_area_ratio: 0.002,
@@ -245,6 +250,12 @@ impl ConfigBuilder {
     /// Set the settle threshold (ms).
     pub fn settle_ms(mut self, ms: u64) -> Self {
         self.cfg.settle_ms = ms;
+        self
+    }
+
+    /// Set the sustained-activity keyframe interval (ms); `0` disables.
+    pub fn max_active_ms(mut self, ms: u64) -> Self {
+        self.cfg.max_active_ms = ms;
         self
     }
 

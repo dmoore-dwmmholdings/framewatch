@@ -85,9 +85,10 @@ pub fn encode(frame: &RawFrame, opts: &ImageOpts) -> Result<EncodedImage, SinkEr
     // BGRA (with stride) -> tightly packed RGBA.
     let w = frame.width;
     let h = frame.height;
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    // usize math avoids u32 overflow on very large (e.g. multi-4K) frames.
+    let mut rgba = Vec::with_capacity(w as usize * h as usize * 4);
     for y in 0..h {
-        let row = (y * frame.stride) as usize;
+        let row = y as usize * frame.stride as usize;
         for x in 0..w {
             let off = row + (x * 4) as usize;
             let b = frame.buffer.get(off).copied().unwrap_or(0);

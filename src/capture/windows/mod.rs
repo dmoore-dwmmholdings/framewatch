@@ -51,6 +51,24 @@ fn class_name(hwnd: HWND) -> String {
     String::from_utf16_lossy(&buf[..len as usize])
 }
 
+/// Refresh the *dynamic* geometry of an existing [`WindowInfo`] (rect, client
+/// rect, DPI, foreground) from the live window. Cheap — no process lookups — so
+/// it can run periodically during capture to keep metadata correct across
+/// resizes / fullscreen transitions. Title/exe/class are left untouched.
+pub(crate) fn refresh_geometry(info: &mut WindowInfo) {
+    let hwnd = hwnd_from_isize(info.hwnd);
+    let mut wr = RECT::default();
+    let mut cr = RECT::default();
+    let _ = unsafe { GetWindowRect(hwnd, &mut wr) };
+    let _ = unsafe { GetClientRect(hwnd, &mut cr) };
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    let foreground = unsafe { GetForegroundWindow() } == hwnd;
+    info.rect = rect_from_win32(wr);
+    info.client_rect = rect_from_win32(cr);
+    info.dpi = if dpi == 0 { 96 } else { dpi };
+    info.foreground = foreground;
+}
+
 /// Assemble a [`WindowInfo`] for `hwnd`, given a title and exe already resolved
 /// via `windows-capture`'s `Window`.
 pub(crate) fn fill_window_info(hwnd: HWND, title: String, exe: String) -> WindowInfo {

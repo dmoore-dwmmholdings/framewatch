@@ -90,7 +90,9 @@ impl FrameWatchApp {
             };
             let mut backend = backend;
             let _ = backend.run(&mut |frame| {
-                *shared.latest.lock().unwrap() = Some(frame);
+                if let Ok(mut slot) = shared.latest.lock() {
+                    *slot = Some(frame);
+                }
                 if shared.stop.load(Ordering::Relaxed) {
                     ControlFlow::Stop
                 } else {
@@ -110,7 +112,7 @@ impl FrameWatchApp {
 
     /// Pull the latest frame (if any) into a (downscaled) egui texture.
     fn update_texture(&mut self, ctx: &egui::Context) {
-        let frame = self.shared.latest.lock().unwrap().clone();
+        let frame = self.shared.latest.lock().ok().and_then(|g| g.clone());
         if let Some(frame) = frame {
             let img = downscale_to_color_image(&frame, PREVIEW_MAX_W);
             self.texture = Some(ctx.load_texture("preview", img, TextureOptions::LINEAR));

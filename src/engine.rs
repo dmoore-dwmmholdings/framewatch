@@ -46,6 +46,9 @@ pub struct Engine<C: Clock = SystemClock> {
     last_saved_dhash: Option<ImgHash>,
     frames_since_save: u32,
     seq: u64,
+    last_processed: Option<Instant>,
+    dropped: u64,
+    warned_black: bool,
 }
 
 impl<C: Clock> Engine<C> {
@@ -80,6 +83,9 @@ impl<C: Clock> Engine<C> {
             last_saved_dhash: None,
             frames_since_save: 0,
             seq: 0,
+            last_processed: None,
+            dropped: 0,
+            warned_black: false,
         }
     }
 
@@ -91,6 +97,11 @@ impl<C: Clock> Engine<C> {
     /// Number of events emitted so far.
     pub fn events_emitted(&self) -> u64 {
         self.seq
+    }
+
+    /// Number of frames dropped by the `fps_cap` rate limiter.
+    pub fn frames_dropped(&self) -> u64 {
+        self.dropped
     }
 
     /// Process one frame using the injected clock for "now".
@@ -121,17 +132,35 @@ impl<C: Clock> Engine<C> {
         let mut events: SmallVec<[CaptureEvent; 2]> = SmallVec::new();
         self.ensure_session(now, frame);
 
-        let wf = WorkingFrame::from_raw(frame, self.cols, self.rows);
-
-        // 1. Initial frame.
+        // 1. Initial frame (always processed, never rate-limited).
         if !self.first_done {
             self.first_done = true;
+            self.last_processed = Some(now);
+            let wf = WorkingFrame::from_raw(frame, self.cols, self.rows);
+            self.warn_if_black(&wf);
             let regions: Vec<RegionState> = Vec::new();
             let ev = self.emit(EventKind::Initial, frame, now, &wf, None, &regions, true);
             self.prev = Some(wf);
             events.push(ev);
             return events;
         }
+
+        // 1b. fps_cap: drop frames arriving faster than the cap (cheaply, before
+        // the downsample pass). Dropped frames still count as coalesced.
+        if self.cfg.fps_cap > 0 {
+            let min_interval = (1000 / self.cfg.fps_cap.max(1)) as u128;
+            if let Some(last) = self.last_processed {
+                if now.duration_since(last).as_millis() < min_interval {
+                    self.dropped = self.dropped.saturating_add(1);
+                    self.frames_since_save = self.frames_since_save.saturating_add(1);
+                    return events;
+                }
+            }
+        }
+        self.last_processed = Some(now);
+
+        let wf = WorkingFrame::from_raw(frame, self.cols, self.rows);
+        self.warn_if_black(&wf);
 
         // 2. Diff + volatility.
         let prev = self.prev.take().unwrap_or_else(|| wf.clone());
@@ -227,13 +256,23 @@ impl<C: Clock> Engine<C> {
             }
         }
 
-        // 7. Quiescence / settle.
+        // 7. Quiescence / settle — fires when the window goes quiet, OR when it
+        // has been *continuously* active past `max_active_ms` without quiescing
+        // (a sustained fullscreen video/animation), so long activity still yields
+        // periodic captures instead of none.
         if self.state == State::Active && !busy_now {
             let quiet_for = self
                 .last_activity
                 .map(|t| now.duration_since(t).as_millis())
                 .unwrap_or(u128::MAX);
-            if quiet_for >= self.cfg.settle_ms as u128 {
+            let active_for = self
+                .active_start
+                .map(|t| now.duration_since(t).as_millis())
+                .unwrap_or(0);
+            let settled = quiet_for >= self.cfg.settle_ms as u128;
+            let keyframe =
+                self.cfg.max_active_ms > 0 && active_for >= self.cfg.max_active_ms as u128;
+            if settled || keyframe {
                 self.state = State::Idle;
                 let ev = self.emit(
                     EventKind::Settled,
@@ -254,6 +293,24 @@ impl<C: Clock> Engine<C> {
             self.frames_since_save = self.frames_since_save.saturating_add(1);
         }
         events
+    }
+
+    /// Warn once if a frame is entirely black — the usual symptom of an
+    /// exclusive-fullscreen (DirectX) or DRM-protected target that the Windows
+    /// Graphics Capture API renders as black.
+    fn warn_if_black(&mut self, wf: &WorkingFrame) {
+        if self.warned_black {
+            return;
+        }
+        if !wf.luma.is_empty() && wf.luma.iter().all(|&l| l < 3) {
+            self.warned_black = true;
+            tracing::warn!(
+                "framewatch: captured frame is all-black — the target may be in \
+                 exclusive fullscreen or showing DRM-protected content, which the \
+                 Windows Graphics Capture API cannot capture. Try borderless/windowed \
+                 mode, or capture the monitor."
+            );
+        }
     }
 
     /// Meaningful change = changed tiles outside spinner/volatile regions with

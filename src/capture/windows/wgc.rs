@@ -39,6 +39,7 @@ struct Handler {
     tx: Sender<RawFrame>,
     window: WindowInfo,
     stop: Arc<AtomicBool>,
+    frame_count: u64,
 }
 
 impl GraphicsCaptureApiHandler for Handler {
@@ -50,6 +51,7 @@ impl GraphicsCaptureApiHandler for Handler {
             tx: ctx.flags.tx,
             window: ctx.flags.window,
             stop: ctx.flags.stop,
+            frame_count: 0,
         })
     }
 
@@ -62,6 +64,13 @@ impl GraphicsCaptureApiHandler for Handler {
             capture_control.stop();
             return Ok(());
         }
+
+        // Keep window geometry (rect/dpi/foreground) fresh across resizes and
+        // fullscreen transitions; ~every 30 frames to stay cheap.
+        if self.frame_count % 30 == 0 {
+            crate::capture::windows::refresh_geometry(&mut self.window);
+        }
+        self.frame_count = self.frame_count.wrapping_add(1);
 
         let width = frame.width();
         let height = frame.height();

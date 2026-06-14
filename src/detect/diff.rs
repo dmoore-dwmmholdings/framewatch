@@ -42,10 +42,11 @@ impl WorkingFrame {
                 let step_y = ((y1 - y0) / 16).max(1);
                 let mut py = y0;
                 while py < y1 {
-                    let row_off = (py * frame.stride) as usize;
+                    // usize math avoids u32 overflow on very large frames.
+                    let row_off = py as usize * frame.stride as usize;
                     let mut px = x0;
                     while px < x1 {
-                        let off = row_off + (px * 4) as usize;
+                        let off = row_off + px as usize * 4;
                         let b = frame.buffer.get(off).copied().unwrap_or(0) as u64;
                         let g = frame.buffer.get(off + 1).copied().unwrap_or(0) as u64;
                         let r = frame.buffer.get(off + 2).copied().unwrap_or(0) as u64;

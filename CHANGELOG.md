@@ -7,6 +7,27 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+### Fixed
+- **Fullscreen / sustained-activity captures.** A surface that changes on every
+  frame (e.g. a fullscreen video or game) never quiesced, so after the initial
+  frame *no images were ever saved*. Added a `max_active_ms` keyframe (default
+  5000 ms) so sustained activity still yields periodic captures.
+- Implemented `fps_cap` (it was a documented-but-unused config knob): frames
+  arriving faster than the cap are now dropped before the downsample pass.
+- Windows backend: window geometry (`rect`/`client_rect`/`dpi`/`foreground`) in
+  the timeline metadata is now refreshed during capture instead of being frozen
+  at start, so it stays correct across resizes / fullscreen transitions.
+
+### Added
+- All-black frame detection: logs a one-time warning when the target is likely in
+  exclusive fullscreen or showing DRM-protected content (which WGC renders black).
+- `Engine::frames_dropped()` and the `max_active_ms` config / builder option.
+
+### Hardened
+- Buffer-size arithmetic in `encode` and `WorkingFrame::from_raw` now uses `usize`
+  math to avoid `u32` overflow on very large (multi-4K) frames.
+- GUI preview no longer panics if the frame mutex is poisoned.
+
 ## [0.1.0] - 2026-06-14
 
 Initial release.
