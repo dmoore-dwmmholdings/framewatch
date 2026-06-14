@@ -79,8 +79,18 @@ Common knobs (all optional; sensible defaults):
 | `--out <dir>` | `./.framewatch` | parent output directory |
 | `--settle-ms <n>` | `350` | quiescence before declaring "settled" |
 | `--value-sample-ms <n>` | `1000` | throttle for volatile-region samples |
+| `--roi <X,Y,W,H>` | — | **crop** capture + detection + output to a pixel region (clip host chrome / titlebar / menu bar). Coords are relative to the captured frame's top-left. |
 | `--config <file>` | — | load a `framewatch.toml` base config (flags override it) |
 | `-v`, `-vv` | — | log verbosity (or set `RUST_LOG`) |
+
+`--roi` crops everything downstream: the saved PNGs are just that region, and
+change-detection ignores motion outside it (so e.g. host window chrome won't
+trigger captures). `window.rect` in the timeline still reports the full source
+window. Example — clip a 1920×1040 guest area below a host titlebar/menu:
+
+```sh
+dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --until-settled --out ./.framewatch
+```
 
 **Lifecycle flags — use these to avoid coordinating two processes:**
 
@@ -99,6 +109,13 @@ one-shot run. Recommended agent one-liner (no launch-order races, exits on its o
 ```sh
 dist\framewatch.exe watch --title "My App" --wait 15 --until-settled --out ./.framewatch
 ```
+
+> **Already-static screens:** a target with no motion (e.g. a quiescent login
+> screen) produces only the `initial` frame and never a `settled` event — there's
+> nothing to settle from, and that initial frame *is* the stable capture. So pair
+> `--until-settled` with `--duration <secs>` as a fallback bound:
+> `--wait 15 --until-settled --duration 8` exits on settle if the UI animates, or
+> after 8s with the stable `initial` frame if it's already static.
 
 On start it prints (to stdout):
 
@@ -170,6 +187,8 @@ One object per line. Example (`settled` event):
   "image": "frames/000001_settled.png",      // path relative to session dir, or null
   "window": {
     "title": "...", "exe": "Code.exe", "class": "Chrome_WidgetWin_1",
+    // rect is [x, y, WIDTH, HEIGHT] (NOT [left, top, right, bottom]); virtual-desktop
+    // pixels, so x/y can be negative or large on multi-monitor setups.
     "hwnd": 67890, "rect": [x, y, w, h], "dpi": 96, "foreground": true
   },
   "change": {
@@ -333,6 +352,9 @@ dist\framewatch.exe watch --config framewatch.toml
 # one-shot, no launch-order coordination needed:
 dist\framewatch.exe watch --title "My App" --wait 15 --until-settled --out ./.framewatch
 dist\framewatch.exe watch --title "My App" --wait 15 --duration 8     --out ./.framewatch
+
+# crop to a region (clip host chrome) — e.g. a guest area below a titlebar/menu:
+dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --wait 15 --until-settled --duration 8 --out ./.framewatch
 
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"

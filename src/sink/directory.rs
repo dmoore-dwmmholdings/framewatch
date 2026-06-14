@@ -26,6 +26,14 @@ application window. To understand what happened:
 
 Frames are PNGs under `frames/`. There is intentionally no continuous stream — the gaps
 are quiescent or were collapsed as animation/noise.
+
+Notes:
+- `window.rect` is `[x, y, width, height]` (NOT `[left, top, right, bottom]`), in
+  virtual-desktop pixels — `x`/`y` may be negative or large on multi-monitor setups.
+- If the session was captured with a crop/ROI, the saved images are that sub-region,
+  while `window.rect` still describes the full source window.
+- A perfectly static target may only produce the `initial` frame (nothing to settle
+  from); that frame is the stable capture.
 "#;
 
 /// Writes a full framewatch session to a directory.

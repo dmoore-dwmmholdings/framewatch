@@ -2,6 +2,7 @@
 
 use crate::error::Error;
 use crate::event::{ImageFormat, SaveMask};
+use crate::frame::Rect;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -97,6 +98,7 @@ impl Default for Rotation {
 /// per workflow, not hundreds. Construct via [`Config::builder`] or load from TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct Config {
     /// How to select the target window.
     pub target: Target,
@@ -143,6 +145,9 @@ pub struct Config {
     pub image: ImageOpts,
     /// Region-of-interest hints.
     pub rois: Vec<RoiHint>,
+    /// Optional crop: capture/detect/save only this pixel region of the frame
+    /// (e.g. to clip host window chrome). `None` keeps the whole frame.
+    pub crop: Option<Rect>,
     /// Output rotation limits.
     pub rotation: Rotation,
 }
@@ -171,6 +176,7 @@ impl Default for Config {
             save_image_for: SaveMask::default(),
             image: ImageOpts::default(),
             rois: Vec::new(),
+            crop: None,
             rotation: Rotation::default(),
         }
     }
@@ -348,6 +354,17 @@ impl ConfigBuilder {
     pub fn image_format(mut self, format: ImageFormat) -> Self {
         self.cfg.image.format = format;
         self
+    }
+
+    /// Crop capture/detection/output to this pixel region (clips host chrome).
+    pub fn crop(mut self, rect: Rect) -> Self {
+        self.cfg.crop = Some(rect);
+        self
+    }
+
+    /// Crop to `x, y, w, h` pixels (convenience over [`crop`](ConfigBuilder::crop)).
+    pub fn crop_xywh(self, x: i32, y: i32, w: u32, h: u32) -> Self {
+        self.crop(Rect::new(x, y, w, h))
     }
 
     /// Add an arbitrary ROI hint.

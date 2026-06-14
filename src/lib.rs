@@ -120,11 +120,18 @@ pub fn watch_with<B: CaptureBackend, S: Sink>(
     let stop_after_ms = config.stop_after_ms;
     let stop_after_images = config.stop_after_images;
     let stop_after_settled = config.stop_after_settled;
+    let crop = config.crop;
     let mut engine = Engine::new(config, SystemClock);
     let mut images: u64 = 0;
     let start = std::time::Instant::now();
 
     backend.run(&mut |frame| {
+        // Crop to the region of interest (e.g. to clip host window chrome) so both
+        // detection and the saved image cover only that region.
+        let frame = match crop {
+            Some(rect) => frame.crop(rect),
+            None => frame,
+        };
         for event in engine.process(&frame, frame.captured_at) {
             if event.image.is_some() {
                 images += 1;

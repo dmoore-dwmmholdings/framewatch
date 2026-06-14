@@ -21,6 +21,9 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// The `Watch` variant carries many CLI flags; size doesn't matter for a
+// parsed-once command enum.
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// List capturable windows (title, exe, hwnd).
     Windows,
@@ -65,6 +68,24 @@ struct WatchArgs {
     /// Auto-stop after the first settled frame (deterministic one-shot).
     #[arg(long)]
     until_settled: bool,
+    /// Crop capture + detection + output to a pixel region: `X,Y,W,H`
+    /// (e.g. to clip host window chrome / titlebar). Coords are relative to the
+    /// captured frame's top-left.
+    #[arg(long, value_name = "X,Y,W,H")]
+    roi: Option<String>,
+}
+
+/// Parse an `X,Y,W,H` ROI spec into a [`framewatch::Rect`].
+fn parse_roi(spec: &str) -> Result<framewatch::Rect> {
+    let parts: Vec<&str> = spec.split(',').map(|s| s.trim()).collect();
+    if parts.len() != 4 {
+        anyhow::bail!("--roi must be X,Y,W,H (4 comma-separated integers), got: {spec:?}");
+    }
+    let x = parts[0].parse().context("--roi X")?;
+    let y = parts[1].parse().context("--roi Y")?;
+    let w = parts[2].parse().context("--roi W")?;
+    let h = parts[3].parse().context("--roi H")?;
+    Ok(framewatch::Rect::new(x, y, w, h))
 }
 
 #[derive(Args)]
@@ -150,6 +171,9 @@ fn cmd_watch(args: WatchArgs) -> Result<()> {
     }
     if args.until_settled {
         config.stop_after_settled = true;
+    }
+    if let Some(spec) = args.roi.as_deref() {
+        config.crop = Some(parse_roi(spec)?);
     }
 
     config.validate().context("invalid configuration")?;

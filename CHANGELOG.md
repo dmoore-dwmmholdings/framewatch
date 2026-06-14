@@ -7,13 +7,31 @@ changes bump the minor version).
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-06-14
+## [0.3.0] - 2026-06-14
+
+### Added
+- **Headless `--roi <X,Y,W,H>` crop** (from agent feedback): capture, change
+  detection, and saved images are all clipped to a pixel region — e.g. to drop
+  host window chrome (titlebar / menu bar) around a captured app, without
+  round-tripping through the GUI ROI editor. Backed by `Config::crop`, the
+  `crop` / `crop_xywh` builder methods, and a public `RawFrame::crop`.
+
+### Changed
+- `Config` is now `#[non_exhaustive]`; construct it via `Config::builder()` /
+  `Config::default()` (reading/writing existing fields is unaffected). This lets
+  future config knobs be added as non-breaking patch releases.
 
 ### Fixed
 - CI: use `checked_div` instead of a manual `if count == 0` guard in
-  `WorkingFrame::from_raw`, satisfying clippy's new `manual_checked_ops` lint
-  (Rust 1.96). No behavior change — purely to keep `clippy -D warnings` green on
-  the latest stable toolchain.
+  `WorkingFrame::from_raw`, satisfying clippy's `manual_checked_ops` lint (Rust 1.96).
+- Docs: clarified that `window.rect` is `[x, y, width, height]` (not
+  `[left, top, right, bottom]`) in virtual-desktop pixels, and that a perfectly
+  static target yields only the `initial` frame (pair `--until-settled` with
+  `--duration` as a fallback bound).
+
+### Internal
+- CI pins the Rust toolchain (1.96.0) instead of tracking `@stable`, so a new
+  compiler/clippy release can't turn CI red without a code change.
 
 ## [0.2.0] - 2026-06-14
 
@@ -65,7 +83,7 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...v0.2.1
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dmoore-dwmmholdings/framewatch/releases/tag/v0.1.0

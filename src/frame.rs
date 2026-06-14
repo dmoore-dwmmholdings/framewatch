@@ -120,4 +120,44 @@ impl RawFrame {
         let a = self.buffer.get(off + 3).copied().unwrap_or(255);
         (b, g, r, a)
     }
+
+    /// Return a new, tightly-packed frame cropped to `rect` (pixel coords,
+    /// relative to this frame's top-left), clamped to the frame bounds.
+    ///
+    /// `captured_at`/`wall_time`/`window` are preserved. If `rect` is empty or
+    /// falls entirely outside the frame, the frame is returned unchanged.
+    pub fn crop(&self, rect: Rect) -> RawFrame {
+        let fw = self.width as i64;
+        let fh = self.height as i64;
+        let x0 = (rect.x as i64).clamp(0, fw);
+        let y0 = (rect.y as i64).clamp(0, fh);
+        let x1 = (rect.x as i64 + rect.w as i64).clamp(0, fw);
+        let y1 = (rect.y as i64 + rect.h as i64).clamp(0, fh);
+        if x1 <= x0 || y1 <= y0 {
+            return self.clone();
+        }
+
+        let cw = (x1 - x0) as u32;
+        let ch = (y1 - y0) as u32;
+        let row_bytes = cw as usize * 4;
+        let mut buf = vec![0u8; row_bytes * ch as usize];
+        for dy in 0..ch as usize {
+            let sy = y0 as usize + dy;
+            let src = sy * self.stride as usize + x0 as usize * 4;
+            let dst = dy * row_bytes;
+            if src + row_bytes <= self.buffer.len() {
+                buf[dst..dst + row_bytes].copy_from_slice(&self.buffer[src..src + row_bytes]);
+            }
+        }
+
+        RawFrame {
+            buffer: Arc::from(buf.into_boxed_slice()),
+            width: cw,
+            height: ch,
+            stride: cw * 4,
+            captured_at: self.captured_at,
+            wall_time: self.wall_time,
+            window: self.window.clone(),
+        }
+    }
 }

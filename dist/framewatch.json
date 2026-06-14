@@ -34,6 +34,7 @@
         "--out": "output parent directory (default ./.framewatch)",
         "--settle-ms": "quiescence ms before 'settled' (default 350)",
         "--value-sample-ms": "throttle ms for volatile samples (default 1000)",
+        "--roi": "crop capture + detection + output to a pixel region X,Y,W,H (clips host chrome); window.rect still reports the full source window",
         "--config": "path to a framewatch.toml base config (flags override it)"
       },
       "lifecycle_options": {
