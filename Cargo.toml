@@ -9,7 +9,7 @@ repository = "https://github.com/dmoore-dwmmholdings/framewatch"
 readme = "README.md"
 keywords = ["screen-capture", "screenshot", "windows", "agent", "automation"]
 categories = ["multimedia", "os::windows-apis", "computer-vision"]
-exclude = ["tests/fixtures/*.png", "/.github", "framewatch-spec.md"]
+exclude = ["tests/fixtures/*.png", "/.github", "framewatch-spec.md", "dist"]
 
 [features]
 default = ["cli"]
