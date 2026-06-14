@@ -1,0 +1,78 @@
+[package]
+name = "framewatch"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+license = "MIT OR Apache-2.0"
+description = "Event-driven, change-triggered window capture that emits timestamped screenshots + metadata for AI agents."
+repository = "https://github.com/youruser/framewatch"
+readme = "README.md"
+keywords = ["screen-capture", "screenshot", "windows", "agent", "automation"]
+categories = ["multimedia", "os::windows-apis", "computer-vision"]
+exclude = ["tests/fixtures/*.png", "/.github", "framewatch-spec.md"]
+
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:anyhow", "dep:tracing-subscriber"]
+gui = ["dep:eframe", "dep:egui", "dep:dirs"]
+# `wgc` enables the live Windows Graphics Capture backend + window enumeration.
+# It is kept optional (deviating slightly from the spec's always-on windows deps)
+# so the cross-platform core builds and tests fast everywhere without pulling the
+# heavy `windows`/`windows-capture` tree. On Windows, build/install with
+# `--features wgc` (or `cli,wgc`) for live capture.
+wgc = ["dep:windows-capture", "dep:windows"]
+jpeg = ["image/jpeg"]
+webp = ["dep:webp"]
+llm = [] # reserved: out-of-band vision-caption sink
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
+image_hasher = "3"
+thiserror = "2"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+crossbeam-channel = "0.5"
+smallvec = "1"
+regex = "1"
+# CLI (optional)
+clap = { version = "4", features = ["derive"], optional = true }
+anyhow = { version = "1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+# GUI (optional)
+eframe = { version = "0.34", optional = true }
+egui = { version = "0.34", optional = true }
+dirs = { version = "5", optional = true }
+# Encoders (optional)
+webp = { version = "0.3", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-capture = { version = "2", optional = true }
+windows = { version = "0.62", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_HiDpi",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+# (MockClock and MockBackend live in-crate)
+
+[[bin]]
+name = "framewatch"
+path = "src/bin/framewatch.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "embed"
+path = "examples/embed.rs"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = ["x86_64-pc-windows-msvc"]
+features = ["gui", "wgc"]

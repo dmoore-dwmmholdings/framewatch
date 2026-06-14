@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  core:
+    name: Core (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Clippy (no default features)
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+      - name: Test (default features)
+        run: cargo test
+
+      - name: Test (no default features)
+        run: cargo test --no-default-features
+
+      - name: Doc
+        run: cargo doc --no-deps
+
+  windows:
+    name: Windows (gui + wgc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (gui + wgc)
+        run: cargo build --features "gui wgc"
+
+      - name: Clippy (gui + wgc)
+        run: cargo clippy --features "gui wgc" --all-targets -- -D warnings
+
+      - name: Test (gui + wgc)
+        run: cargo test --features "gui wgc"

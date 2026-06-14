@@ -1,0 +1,3 @@
+# Normalize line endings to LF for all text files (consistent across Windows/Linux CI).
+* text=auto eol=lf
+*.png binary
