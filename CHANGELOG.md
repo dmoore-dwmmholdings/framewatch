@@ -28,5 +28,5 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/youruser/framewatch/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/youruser/framewatch/releases/tag/v0.1.0
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dmoore-dwmmholdings/framewatch/releases/tag/v0.1.0

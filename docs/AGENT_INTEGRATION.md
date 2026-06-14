@@ -24,11 +24,8 @@ binary is copied to:
 dist/framewatch.exe
 ```
 
-Absolute path on this machine:
-
-```
-C:\Coding\random-ideas\framewatch\dist\framewatch.exe
-```
+(i.e. `<repo-root>\dist\framewatch.exe` — resolve `dist/framewatch.exe` against
+wherever you cloned/built this repository.)
 
 Verify it:
 
@@ -248,10 +245,14 @@ Windows or GUI deps**; opt into live capture with the `wgc` feature.
 ```toml
 # Cargo.toml of the consuming project
 [dependencies]
-framewatch = { path = "C:/Coding/random-ideas/framewatch", default-features = false }
+# Path is relative to the consuming crate (adjust to where this repo lives),
+# or use a git dependency once published.
+framewatch = { path = "../framewatch", default-features = false }
 
 # For live Windows capture, also enable wgc:
-# framewatch = { path = "...", default-features = false, features = ["wgc"] }
+# framewatch = { path = "../framewatch", default-features = false, features = ["wgc"] }
+# Once on crates.io:
+# framewatch = { version = "0.1", default-features = false, features = ["wgc"] }
 ```
 
 ### 4.1 One-call convenience

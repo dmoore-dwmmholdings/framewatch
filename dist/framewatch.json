@@ -6,7 +6,7 @@
   "sample_session": "dist/sample-session",
   "binary": {
     "relative_path": "dist/framewatch.exe",
-    "absolute_path": "C:\\Coding\\random-ideas\\framewatch\\dist\\framewatch.exe",
+    "path_note": "Paths are relative to the repository root. Resolve relative_path against your checkout to get an absolute path.",
     "platform": "windows-x86_64",
     "features": ["cli", "wgc", "gui"],
     "version_command": "framewatch.exe --version"
@@ -91,7 +91,7 @@
   ],
   "library": {
     "crate": "framewatch",
-    "cargo_dependency": "framewatch = { path = \"C:/Coding/random-ideas/framewatch\", default-features = false }",
+    "cargo_dependency": "framewatch = { path = \"../framewatch\", default-features = false }  # or version = \"0.1\" once published",
     "live_capture_features": ["wgc"],
     "entry_points": [
       "framewatch::watch(config, sink)",

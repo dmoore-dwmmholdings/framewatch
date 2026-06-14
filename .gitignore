@@ -1,16 +1,40 @@
-# Rust build artifacts
+# ---- Rust build artifacts ----
 /target
-
-# Editor / OS cruft
 **/*.rs.bk
-*.swp
-.DS_Store
-Thumbs.db
+*.pdb
+# Note: Cargo.lock IS committed (this crate ships a binary).
 
-# framewatch session output (default out_dir) and scratch dirs
+# ---- Secrets / credentials (defense in depth; none are committed) ----
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.*
+**/credentials
+**/credentials.toml
+.cargo/credentials*
+
+# ---- framewatch runtime output (default out_dir) and scratch dirs ----
 .framewatch/
 .fwtest/
+.fwsmoke/
 
-# Built binary artifacts in dist/ (rebuild with `cargo build --release`).
-# The dist/ docs, manifest, and sample-session ARE tracked.
+# ---- Built binary artifacts in dist/ (rebuild: cargo build --release) ----
+# The dist/ docs, manifest, and sample-session ARE tracked; the binary is not.
 /dist/*.exe
+/dist/*.pdb
+
+# ---- Editor / IDE ----
+/.idea/
+/.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
+desktop.ini

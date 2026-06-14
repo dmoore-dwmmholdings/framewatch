@@ -2,7 +2,7 @@
 
 **Event-driven, change-triggered window capture that emits timestamped screenshots + metadata so an AI coding agent can reconstruct what happened — without a continuous frame stream.**
 
-[![CI](https://github.com/youruser/framewatch/actions/workflows/ci.yml/badge.svg)](https://github.com/youruser/framewatch/actions/workflows/ci.yml)
+[![CI](https://github.com/dmoore-dwmmholdings/framewatch/actions/workflows/ci.yml/badge.svg)](https://github.com/dmoore-dwmmholdings/framewatch/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/framewatch.svg)](https://crates.io/crates/framewatch)
 [![docs.rs](https://img.shields.io/docsrs/framewatch)](https://docs.rs/framewatch)
 
