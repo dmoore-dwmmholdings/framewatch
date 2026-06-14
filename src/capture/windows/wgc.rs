@@ -163,6 +163,19 @@ fn resolve_target(target: &Target) -> Result<Window, CaptureError> {
                 })
                 .ok_or_else(|| CaptureError::TargetNotFound(format!("exe {name}")))
         }
+        Target::ByPid(pid) => {
+            let windows = Window::enumerate().map_err(|e| CaptureError::Backend(e.to_string()))?;
+            windows
+                .into_iter()
+                .filter(|w| w.process_id().map(|p| p == *pid).unwrap_or(false))
+                // A process can own several windows; pick the largest (the main one).
+                .max_by_key(|w| {
+                    let wd = w.width().unwrap_or(0).max(0) as i64;
+                    let ht = w.height().unwrap_or(0).max(0) as i64;
+                    wd * ht
+                })
+                .ok_or_else(|| CaptureError::TargetNotFound(format!("pid {pid}")))
+        }
     }
 }
 

@@ -28,7 +28,8 @@
       "selectors": {
         "--title": "regex matched against the window title",
         "--exe": "executable basename, e.g. Code.exe (case-insensitive)",
-        "--hwnd": "exact numeric window handle"
+        "--hwnd": "exact numeric window handle",
+        "--pid": "exact: the window owned by this process id (avoids stale-window matches on repeat captures of the same exe)"
       },
       "options": {
         "--out": "output parent directory (default ./.framewatch)",
@@ -45,6 +46,28 @@
       },
       "one_shot_example": "framewatch.exe watch --title \"My App\" --wait 15 --until-settled --out ./.framewatch",
       "stdout_first_line": "framewatch: writing session to <out>/<session_id>"
+    },
+    {
+      "name": "shot",
+      "summary": "One settled frame to a single chosen file; optionally launch+capture+kill a program. Best for scripted/batch capture.",
+      "invoke": "framewatch.exe shot (--launch \"<cmd>\" | <selector>) --out-file <path> [--timeout <secs>] [--settle-ms <n>] [--roi X,Y,W,H] [--settle-best-effort]",
+      "blocking": true,
+      "selectors": {
+        "--launch": "spawn this program and capture its window by PID, then kill it on exit (whitespace-split; \"...\" groups an arg)",
+        "--pid": "capture the window owned by this process id (exact)",
+        "--title": "regex matched against the window title",
+        "--exe": "executable basename",
+        "--hwnd": "exact numeric window handle"
+      },
+      "options": {
+        "--out-file": "exact PNG path to write (required, deterministic)",
+        "--timeout": "overall budget seconds to wait for window + settle (default 20)",
+        "--settle-ms": "quiescence ms before 'settled'",
+        "--roi": "crop region X,Y,W,H",
+        "--settle-best-effort": "if nothing settles before timeout, write the latest frame anyway"
+      },
+      "contract": "On success prints the written path to stdout and exits 0. If no frame settles before --timeout (and --settle-best-effort is unset), writes nothing and exits non-zero (3).",
+      "example": "framewatch.exe shot --launch \"game.exe --freecam\" --out-file shot.png --timeout 25"
     },
     {
       "name": "gui",

@@ -71,6 +71,10 @@ Selectors (choose one):
 | `--title <regex>` | match window title against a regular expression |
 | `--exe <name>` | match executable basename, e.g. `Code.exe` (case-insensitive) |
 | `--hwnd <id>` | match the exact numeric window handle |
+| `--pid <id>` | match the window owned by this **process id** — exact, so back-to-back captures never latch onto a *stale* window from an earlier run of the same exe |
+
+> **Doing repeated captures of the same exe?** Match by `--pid` (or use `shot
+> --launch`, §1.3), not `--exe` — otherwise a previous still-alive window can win.
 
 Common knobs (all optional; sensible defaults):
 
@@ -127,7 +131,54 @@ framewatch: press Ctrl+C to stop.
 > **Parse that first line** to learn the session directory — or compute it
 > yourself (see §2.1), or just watch `<out>/` for a new subdirectory.
 
-### 1.3 GUI picker / ROI editor (for humans)
+### 1.3 One-shot to a single file (`shot`) — best for scripted/batch capture
+
+`shot` collapses launch → wait-for-window → one settled frame → teardown into a
+single command, writes the PNG to a **path you choose**, prints that path on
+stdout, and uses the **exit code** to signal success. No session directory, no
+timestamped glob, no two-process orchestration.
+
+```sh
+# Launch a held program, capture its window (matched by the launched PID), kill it:
+dist\framewatch.exe shot --launch "game.exe --freecam --pos 1,2,3" --out-file shot.png --timeout 25
+
+# Or against an already-running window (no launch):
+dist\framewatch.exe shot --pid 41234 --out-file shot.png
+dist\framewatch.exe shot --title "QEMU" --roi 0,52,1920,1040 --out-file guest.png
+```
+
+| Flag | Meaning |
+|---|---|
+| `--launch "<cmd>"` | spawn this program, capture **its** window (by PID), then kill it on exit. Whitespace-split; use `"..."` to group an argument. |
+| `--out-file <path>` | exact PNG path to write (required, deterministic) |
+| `--title/--exe/--hwnd/--pid` | selector when not using `--launch` |
+| `--timeout <secs>` | overall budget to wait for the window + a settled frame (default 20) |
+| `--settle-ms <n>` | quiescence to declare "settled" |
+| `--roi <X,Y,W,H>` | crop (clip host chrome) |
+| `--settle-best-effort` | if nothing settles before the timeout, write the latest frame anyway instead of failing |
+
+**Contract:** on success `shot` prints the written path to **stdout** and exits
+`0`. If no frame settles before `--timeout` (and `--settle-best-effort` is not
+set), it writes nothing and exits **non-zero** (3) — so a script can branch on the
+exit code instead of globbing. Capturing by the launched PID means repeated
+captures never pick up a stale window.
+
+> **`--launch` caveat:** the captured window must be **owned by the launched
+> process**. A normal `game.exe` qualifies; "relauncher" apps that hand off to a
+> separate process (e.g. Win11 Notepad/Calculator as Store apps) do not — for
+> those, launch the app yourself and pass `--pid`. Statically-quiescent targets
+> need `--settle-best-effort` (only `initial` is produced — see §2.2).
+
+```sh
+# scripted use:
+if path=$(framewatch shot --launch "game.exe --scene city" --out-file city.png --timeout 30); then
+  echo "captured $path"
+else
+  echo "never settled" >&2
+fi
+```
+
+### 1.4 GUI picker / ROI editor (for humans)
 
 ```sh
 dist\framewatch.exe gui
@@ -355,6 +406,10 @@ dist\framewatch.exe watch --title "My App" --wait 15 --duration 8     --out ./.f
 
 # crop to a region (clip host chrome) — e.g. a guest area below a titlebar/menu:
 dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --wait 15 --until-settled --duration 8 --out ./.framewatch
+
+# one settled frame to a chosen file (launch + capture + kill; prints path, exit code):
+dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --timeout 25
+dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
 
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"

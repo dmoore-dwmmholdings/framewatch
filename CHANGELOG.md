@@ -10,16 +10,27 @@ changes bump the minor version).
 ## [0.3.0] - 2026-06-14
 
 ### Added
-- **Headless `--roi <X,Y,W,H>` crop** (from agent feedback): capture, change
-  detection, and saved images are all clipped to a pixel region — e.g. to drop
-  host window chrome (titlebar / menu bar) around a captured app, without
-  round-tripping through the GUI ROI editor. Backed by `Config::crop`, the
-  `crop` / `crop_xywh` builder methods, and a public `RawFrame::crop`.
+- **`shot` subcommand** (from agent feedback): one-shot capture of a single
+  settled frame to a chosen file. Optionally `--launch "<cmd>"` to spawn a
+  program, capture *its* window (matched by PID), and kill it on exit. Writes to
+  `--out-file`, prints the path on stdout, and exits non-zero if nothing settled
+  before `--timeout` (`--settle-best-effort` writes the latest frame instead).
+  Collapses launch → wait → capture → teardown into one command, with no session
+  directory or timestamped glob.
+- **Exact `--pid` window matching** (on `watch` and `shot`) and a `Target::ByPid`
+  variant — avoids latching onto a stale window from an earlier run of the same
+  exe on back-to-back captures.
+- **Headless `--roi <X,Y,W,H>` crop**: capture, change detection, and saved
+  images are all clipped to a pixel region — e.g. to drop host window chrome
+  (titlebar / menu bar) around a captured app, without round-tripping through the
+  GUI ROI editor. Backed by `Config::crop`, the `crop` / `crop_xywh` builder
+  methods, and a public `RawFrame::crop`.
 
 ### Changed
-- `Config` is now `#[non_exhaustive]`; construct it via `Config::builder()` /
-  `Config::default()` (reading/writing existing fields is unaffected). This lets
-  future config knobs be added as non-breaking patch releases.
+- `Config` and `Target` are now `#[non_exhaustive]`; construct `Config` via
+  `Config::builder()` / `Config::default()` (reading/writing existing fields and
+  constructing `Target` variants are unaffected). This lets future config knobs
+  and target kinds be added as non-breaking patch releases.
 
 ### Fixed
 - CI: use `checked_div` instead of a manual `if count == 0` guard in

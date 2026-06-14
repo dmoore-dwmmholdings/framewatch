@@ -39,6 +39,7 @@ pub fn target_hint(target: &Target) -> String {
         Target::ByExe(e) => e.clone(),
         Target::ByTitleRegex(t) => t.clone(),
         Target::ByHwnd(h) => format!("hwnd{h}"),
+        Target::ByPid(p) => format!("pid{p}"),
     }
 }
 
@@ -156,7 +157,7 @@ impl SessionManifest {
         let (title, exe) = match &config.target {
             Target::ByTitleRegex(t) => (Some(t.clone()), None),
             Target::ByExe(e) => (None, Some(e.clone())),
-            Target::ByHwnd(_) => (None, None),
+            Target::ByHwnd(_) | Target::ByPid(_) => (None, None),
         };
         Self {
             session_id: session.id.clone(),

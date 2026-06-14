@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 /// How to select the target window.
 ///
 /// In TOML / JSON this is an externally-tagged map: `{ title = "..." }`,
-/// `{ exe = "..." }`, or `{ hwnd = 1234 }`.
+/// `{ exe = "..." }`, `{ hwnd = 1234 }`, or `{ pid = 4321 }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Target {
     /// Match by native window handle.
     #[serde(rename = "hwnd")]
@@ -21,6 +22,10 @@ pub enum Target {
     /// Match by executable basename (e.g. `"Code.exe"`).
     #[serde(rename = "exe")]
     ByExe(String),
+    /// Match the window owned by this process id (exact — avoids latching onto a
+    /// stale window of an earlier run of the same exe).
+    #[serde(rename = "pid")]
+    ByPid(u32),
 }
 
 impl Default for Target {
