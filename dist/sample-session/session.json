@@ -1,0 +1,47 @@
+{
+  "session_id": "2026-06-14T06-22-17_Visual-Studio-Code",
+  "tool": "framewatch 0.1.0",
+  "target": {
+    "title": "Visual Studio Code",
+    "selected_via": "config"
+  },
+  "started_at": "2026-06-14T06:22:17.625578800Z",
+  "ended_at": "2026-06-14T06:22:17.638112100Z",
+  "config": {
+    "settle_ms": 150,
+    "tile_grid": [
+      32,
+      18
+    ],
+    "dedup_hamming": 8,
+    "value_sample_ms": 1000
+  },
+  "roi_hints": [
+    {
+      "kind": "spinner",
+      "label": "test-runner",
+      "rect_norm": [
+        0.02,
+        0.94,
+        0.04,
+        0.05
+      ]
+    },
+    {
+      "kind": "ignore",
+      "label": "clock",
+      "rect_norm": [
+        0.92,
+        0.0,
+        0.08,
+        0.03
+      ]
+    }
+  ],
+  "counts": {
+    "frames_observed": 7,
+    "images_saved": 2,
+    "events": 2
+  },
+  "timeline": "timeline.jsonl"
+}

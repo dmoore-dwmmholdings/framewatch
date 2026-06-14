@@ -1,0 +1,106 @@
+{
+  "tool": "framewatch",
+  "version": "0.1.0",
+  "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents.",
+  "docs": "docs/AGENT_INTEGRATION.md",
+  "sample_session": "dist/sample-session",
+  "binary": {
+    "relative_path": "dist/framewatch.exe",
+    "absolute_path": "C:\\Coding\\random-ideas\\framewatch\\dist\\framewatch.exe",
+    "platform": "windows-x86_64",
+    "features": ["cli", "wgc", "gui"],
+    "version_command": "framewatch.exe --version"
+  },
+  "commands": [
+    {
+      "name": "windows",
+      "summary": "List capturable windows.",
+      "invoke": "framewatch.exe windows",
+      "blocking": false,
+      "stdout": "table with columns: HWND, EXE, TITLE"
+    },
+    {
+      "name": "watch",
+      "summary": "Capture a window into a session directory until stopped.",
+      "invoke": "framewatch.exe watch <selector> [--out <dir>] [--settle-ms <n>] [--value-sample-ms <n>] [--config <file>]",
+      "blocking": true,
+      "stop": "Ctrl+C, or the target window closes",
+      "selectors": {
+        "--title": "regex matched against the window title",
+        "--exe": "executable basename, e.g. Code.exe (case-insensitive)",
+        "--hwnd": "exact numeric window handle"
+      },
+      "options": {
+        "--out": "output parent directory (default ./.framewatch)",
+        "--settle-ms": "quiescence ms before 'settled' (default 350)",
+        "--value-sample-ms": "throttle ms for volatile samples (default 1000)",
+        "--config": "path to a framewatch.toml base config (flags override it)"
+      },
+      "stdout_first_line": "framewatch: writing session to <out>/<session_id>"
+    },
+    {
+      "name": "gui",
+      "summary": "Launch the GUI window picker / ROI editor (for humans).",
+      "invoke": "framewatch.exe gui [--config <file>]",
+      "blocking": true
+    }
+  ],
+  "output": {
+    "session_dir": "<out_dir>/<session_id>",
+    "session_id_format": "%Y-%m-%dT%H-%M-%S_<exe-stem>",
+    "default_out_dir": "./.framewatch",
+    "files": {
+      "manifest": "session.json",
+      "timeline": "timeline.jsonl",
+      "agent_readme": "README_FOR_AGENT.md",
+      "frames": "frames/<seq:06>_<kind>.png"
+    },
+    "timeline_format": "JSON Lines (one event object per line, chronological)",
+    "event_kinds": [
+      "initial",
+      "transition_start",
+      "busy_start",
+      "busy_end",
+      "value_sample",
+      "settled",
+      "manual"
+    ],
+    "images_saved_for_default": ["initial", "settled", "busy_end", "manual"],
+    "open_images_for": ["settled", "busy_end"],
+    "timeline_event_fields": {
+      "seq": "u64 monotonic event index",
+      "id": "string 'f' + zero-padded seq",
+      "kind": "one of event_kinds",
+      "wall_time": "RFC3339 UTC timestamp",
+      "elapsed_ms": "u64 ms since session start",
+      "image": "string path relative to session dir, or null",
+      "window": "{ title, exe, class, hwnd, rect:[x,y,w,h], dpi, foreground }",
+      "change": "{ changed_tiles, tile_grid:[cols,rows], area_ratio, bboxes:[[x,y,w,h]], dhash?, hamming_to_prev_emit? }",
+      "busy": "{ active, regions:[{ label, active }] }",
+      "timing": "{ since_prev_emit_ms?, active_for_ms?, quiescent_for_ms? }",
+      "coalesced_frames": "u32 frames collapsed since previous saved image",
+      "note": "human-readable summary"
+    }
+  },
+  "consume_algorithm": [
+    "Read session.json for target app, time range, config, and ROI hints.",
+    "Stream timeline.jsonl line by line (each line is a complete JSON object).",
+    "Open images only for events with kind == 'settled' or kind == 'busy_end'.",
+    "Use coalesced_frames to know how much activity each saved image represents.",
+    "Use busy_start / value_sample notes for timing context without opening images."
+  ],
+  "library": {
+    "crate": "framewatch",
+    "cargo_dependency": "framewatch = { path = \"C:/Coding/random-ideas/framewatch\", default-features = false }",
+    "live_capture_features": ["wgc"],
+    "entry_points": [
+      "framewatch::watch(config, sink)",
+      "framewatch::default_backend(&config)",
+      "framewatch::enumerate_windows()",
+      "framewatch::Engine::process(&frame, now)",
+      "framewatch::Config::builder()",
+      "framewatch::DirectorySink::new(&config)"
+    ]
+  },
+  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with the wgc feature. The pure detection engine and sinks compile and run on all platforms."
+}

@@ -10,3 +10,7 @@ Thumbs.db
 # framewatch session output (default out_dir) and scratch dirs
 .framewatch/
 .fwtest/
+
+# Built binary artifacts in dist/ (rebuild with `cargo build --release`).
+# The dist/ docs, manifest, and sample-session ARE tracked.
+/dist/*.exe

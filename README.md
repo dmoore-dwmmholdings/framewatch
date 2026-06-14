@@ -42,6 +42,11 @@ timestamped, agent-readable artifacts** in one importable package:
 | Cross-platform capture | [`xcap`](https://github.com/nashaofu/xcap), [`scap`](https://crates.io/crates/scap) | No change semantics |
 | Perceptual-hash dedup | [`image_hasher`](https://crates.io/crates/image_hasher) | A building block, not a pipeline |
 
+> **Using framewatch from another project or agent?** See
+> [`docs/AGENT_INTEGRATION.md`](docs/AGENT_INTEGRATION.md) for the exact
+> where/how-to-call contract, and [`dist/framewatch.json`](dist/framewatch.json)
+> for a machine-readable manifest.
+
 ## Install
 
 ```sh
