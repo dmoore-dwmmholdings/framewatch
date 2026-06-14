@@ -7,6 +7,8 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-14
+
 ### Fixed
 - **Fullscreen / sustained-activity captures.** A surface that changes on every
   frame (e.g. a fullscreen video or game) never quiesced, so after the initial
@@ -55,5 +57,6 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dmoore-dwmmholdings/framewatch/releases/tag/v0.1.0
