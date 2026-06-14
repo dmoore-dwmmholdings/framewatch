@@ -57,7 +57,7 @@ impl WorkingFrame {
                     }
                     py += step_y;
                 }
-                let mean = if count == 0 { 0 } else { (sum / count) as u8 };
+                let mean = sum.checked_div(count).unwrap_or(0) as u8;
                 luma[(ty * cols as u32 + tx) as usize] = mean;
             }
         }

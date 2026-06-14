@@ -7,6 +7,14 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-14
+
+### Fixed
+- CI: use `checked_div` instead of a manual `if count == 0` guard in
+  `WorkingFrame::from_raw`, satisfying clippy's new `manual_checked_ops` lint
+  (Rust 1.96). No behavior change — purely to keep `clippy -D warnings` green on
+  the latest stable toolchain.
+
 ## [0.2.0] - 2026-06-14
 
 ### Fixed
@@ -57,6 +65,7 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dmoore-dwmmholdings/framewatch/releases/tag/v0.1.0
