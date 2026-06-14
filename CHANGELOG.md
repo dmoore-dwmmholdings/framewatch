@@ -19,6 +19,12 @@ changes bump the minor version).
   at start, so it stays correct across resizes / fullscreen transitions.
 
 ### Added
+- **Lifecycle flags for frictionless agent use** (from real agent feedback):
+  `--wait <secs>` polls for the target window to appear (no launch-order race),
+  and `--until-settled` / `--duration <secs>` / `--frames <n>` make `watch` a
+  bounded one-shot that exits on its own. Backed by `Config::{wait_ms,
+  stop_after_ms, stop_after_images, stop_after_settled}` and a new
+  `watch_with(config, backend, sink)` for embedding with a custom backend.
 - All-black frame detection: logs a one-time warning when the target is likely in
   exclusive fullscreen or showing DRM-protected content (which WGC renders black).
 - `Engine::frames_dropped()` and the `max_active_ms` config / builder option.

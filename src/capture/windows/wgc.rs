@@ -218,4 +218,8 @@ impl CaptureBackend for WgcBackend {
     fn stop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
     }
+
+    fn stop_signal(&self) -> Option<Arc<AtomicBool>> {
+        Some(self.stop.clone())
+    }
 }

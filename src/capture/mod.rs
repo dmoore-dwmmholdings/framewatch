@@ -10,6 +10,8 @@ pub mod windows;
 
 use crate::error::CaptureError;
 use crate::frame::{RawFrame, WindowInfo};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// Whether the host loop wants more frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +35,30 @@ pub trait CaptureBackend {
 
     /// Request that capture stop as soon as possible.
     fn stop(&mut self);
+
+    /// An optional shared flag the host can set to request the backend stop,
+    /// even while the window is idle and delivering no frames (used by the
+    /// duration watchdog). Returns `None` if the backend can't be signalled.
+    fn stop_signal(&self) -> Option<Arc<AtomicBool>> {
+        None
+    }
+}
+
+impl CaptureBackend for Box<dyn CaptureBackend> {
+    fn run(
+        &mut self,
+        on_frame: &mut dyn FnMut(RawFrame) -> ControlFlow,
+    ) -> Result<(), CaptureError> {
+        (**self).run(on_frame)
+    }
+
+    fn stop(&mut self) {
+        (**self).stop()
+    }
+
+    fn stop_signal(&self) -> Option<Arc<AtomicBool>> {
+        (**self).stop_signal()
+    }
 }
 
 /// Enumerate capturable top-level windows.

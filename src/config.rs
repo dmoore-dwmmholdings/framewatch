@@ -104,6 +104,15 @@ pub struct Config {
     pub out_dir: PathBuf,
     /// Maximum frames per second processed.
     pub fps_cap: u32,
+    /// Wait up to this many ms for the target window to appear before failing
+    /// (poll/retry). `0` fails immediately if the window is absent. Default 0.
+    pub wait_ms: u64,
+    /// Auto-stop capture after this many ms. `0` runs until interrupted.
+    pub stop_after_ms: u64,
+    /// Auto-stop after this many images have been saved. `0` is unlimited.
+    pub stop_after_images: u64,
+    /// Auto-stop after the first `Settled` event (one-shot "money frame").
+    pub stop_after_settled: bool,
     /// Floor between saved images, in milliseconds.
     pub min_emit_interval_ms: u64,
     /// Quiescence required to declare "settled", in milliseconds.
@@ -144,6 +153,10 @@ impl Default for Config {
             target: Target::default(),
             out_dir: PathBuf::from("./.framewatch"),
             fps_cap: 30,
+            wait_ms: 0,
+            stop_after_ms: 0,
+            stop_after_images: 0,
+            stop_after_settled: false,
             min_emit_interval_ms: 200,
             settle_ms: 350,
             max_active_ms: 5000,
@@ -256,6 +269,30 @@ impl ConfigBuilder {
     /// Set the sustained-activity keyframe interval (ms); `0` disables.
     pub fn max_active_ms(mut self, ms: u64) -> Self {
         self.cfg.max_active_ms = ms;
+        self
+    }
+
+    /// Wait up to `ms` for the target window to appear before failing.
+    pub fn wait_ms(mut self, ms: u64) -> Self {
+        self.cfg.wait_ms = ms;
+        self
+    }
+
+    /// Auto-stop capture after `ms` (`0` runs until interrupted).
+    pub fn stop_after_ms(mut self, ms: u64) -> Self {
+        self.cfg.stop_after_ms = ms;
+        self
+    }
+
+    /// Auto-stop after `n` images have been saved (`0` is unlimited).
+    pub fn stop_after_images(mut self, n: u64) -> Self {
+        self.cfg.stop_after_images = n;
+        self
+    }
+
+    /// Auto-stop after the first `Settled` event.
+    pub fn stop_after_settled(mut self, on: bool) -> Self {
+        self.cfg.stop_after_settled = on;
         self
     }
 

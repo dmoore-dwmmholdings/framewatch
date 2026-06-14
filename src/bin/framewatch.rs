@@ -53,6 +53,18 @@ struct WatchArgs {
     /// Throttle (ms) for volatile-region samples.
     #[arg(long)]
     value_sample_ms: Option<u64>,
+    /// Wait up to N seconds for the target window to appear before failing.
+    #[arg(long)]
+    wait: Option<u64>,
+    /// Auto-stop capture after N seconds (one-shot with a time bound).
+    #[arg(long)]
+    duration: Option<u64>,
+    /// Auto-stop after N images have been saved.
+    #[arg(long)]
+    frames: Option<u64>,
+    /// Auto-stop after the first settled frame (deterministic one-shot).
+    #[arg(long)]
+    until_settled: bool,
 }
 
 #[derive(Args)]
@@ -126,6 +138,18 @@ fn cmd_watch(args: WatchArgs) -> Result<()> {
     }
     if let Some(ms) = args.value_sample_ms {
         config.value_sample_ms = ms;
+    }
+    if let Some(secs) = args.wait {
+        config.wait_ms = secs.saturating_mul(1000);
+    }
+    if let Some(secs) = args.duration {
+        config.stop_after_ms = secs.saturating_mul(1000);
+    }
+    if let Some(n) = args.frames {
+        config.stop_after_images = n;
+    }
+    if args.until_settled {
+        config.stop_after_settled = true;
     }
 
     config.validate().context("invalid configuration")?;

@@ -82,10 +82,23 @@ Common knobs (all optional; sensible defaults):
 | `--config <file>` | — | load a `framewatch.toml` base config (flags override it) |
 | `-v`, `-vv` | — | log verbosity (or set `RUST_LOG`) |
 
-**Behavior:** `watch` **blocks**. It prints the session directory it is writing to,
-then runs until **Ctrl+C** or until the **target window closes**. It writes files
-incrementally (each event is flushed immediately), so a session is readable while
-it is still running.
+**Lifecycle flags — use these to avoid coordinating two processes:**
+
+| Flag | Meaning |
+|---|---|
+| `--wait <secs>` | poll/retry for the target window to **appear** instead of failing instantly — so it doesn't matter whether you launch the app or `watch` first |
+| `--until-settled` | exit after the **first settled frame** (deterministic one-shot: wait for the UI to settle, grab it, done) |
+| `--duration <secs>` | exit after N seconds (time-bounded one-shot; also stops an idle window) |
+| `--frames <n>` | exit after N images have been saved |
+
+**Behavior:** by default `watch` **blocks** until **Ctrl+C** or the **target
+window closes**, writing files incrementally (each event flushed immediately) so a
+session is readable while running. With any lifecycle flag it becomes a bounded /
+one-shot run. Recommended agent one-liner (no launch-order races, exits on its own):
+
+```sh
+dist\framewatch.exe watch --title "My App" --wait 15 --until-settled --out ./.framewatch
+```
 
 On start it prints (to stdout):
 
@@ -316,6 +329,10 @@ dist\framewatch.exe watch --title "<regex>" --out ./.framewatch
 dist\framewatch.exe watch --exe   "Code.exe"
 dist\framewatch.exe watch --hwnd  67890
 dist\framewatch.exe watch --config framewatch.toml
+
+# one-shot, no launch-order coordination needed:
+dist\framewatch.exe watch --title "My App" --wait 15 --until-settled --out ./.framewatch
+dist\framewatch.exe watch --title "My App" --wait 15 --duration 8     --out ./.framewatch
 
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"

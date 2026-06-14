@@ -36,6 +36,13 @@
         "--value-sample-ms": "throttle ms for volatile samples (default 1000)",
         "--config": "path to a framewatch.toml base config (flags override it)"
       },
+      "lifecycle_options": {
+        "--wait": "poll/retry up to N seconds for the target window to appear (no launch-order race)",
+        "--until-settled": "exit after the first settled frame (deterministic one-shot)",
+        "--duration": "exit after N seconds (time-bounded; also stops an idle window)",
+        "--frames": "exit after N images have been saved"
+      },
+      "one_shot_example": "framewatch.exe watch --title \"My App\" --wait 15 --until-settled --out ./.framewatch",
       "stdout_first_line": "framewatch: writing session to <out>/<session_id>"
     },
     {
