@@ -411,6 +411,123 @@ dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --wait 15 --until-
 dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --timeout 25
 dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
 
+# record a window to video while narrating, then bundle an LLM package (see §6):
+dist\framewatch.exe record --title "My Game" --duration 60 --transcribe-cmd "whisper-cli -m m.bin -f {audio} -osrt -of {output}"
+
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"
+# (for `record`: read <out>/<session_id>/PROMPT.md — see §6)
 ```
+
+---
+
+## 6. Recording packages (`record`)
+
+`record` is the opposite of `watch`: instead of a deduped story of "money frames",
+it **continuously records** one window to video while the user narrates into the
+microphone, then transcribes the narration locally and writes a package an LLM
+can act on. Build with `--features "wgc record"`; **`ffmpeg` must be on PATH**.
+
+```sh
+# Record until Ctrl+C (or --duration), transcribing with a local transcriber
+# ({audio}/{output} are substituted):
+dist\framewatch.exe record --title "My Game" --duration 60 \
+  --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}" --out ./.framewatch
+
+# Or skip transcription (video + audio only):
+dist\framewatch.exe record --pid 41234 --no-transcribe
+```
+
+Selectors (`--title/--exe/--hwnd/--pid`), `--launch`, `--out`, `--roi`, `--wait`,
+and `--duration` behave exactly as in `watch`/`shot`. Extra options: `--fps`
+(default 30), `--mic <name>` (default input device), `--no-audio` (record
+video-only), and the transcription choices above. Stop with **Ctrl+C** (the mp4
+is finalized cleanly) or `--duration`. If no microphone is available, recording
+falls back to video-only automatically.
+
+### 6.1 Package layout
+
+```text
+<out_dir>/<session_id>/
+├─ PROMPT.md            # START HERE — the task prompt, transcript inline
+├─ recording.mp4        # the window video (narration muxed in)
+├─ audio.wav            # the raw microphone narration
+├─ transcript.json      # { language?, duration_ms, segments: [{start_ms,end_ms,text}] }
+├─ transcript.srt       # the same transcript as SubRip subtitles
+├─ recording.json       # manifest (see below)
+└─ README_FOR_AGENT.md
+```
+
+`session_id` has the same `%Y-%m-%dT%H-%M-%S_<exe-stem>` format as a capture session.
+
+### 6.2 How to consume
+
+1. **Read `PROMPT.md`.** It is self-contained: it embeds the full timestamped
+   transcript inline, so a text-only model can follow the instructions with no
+   tools.
+2. **If you can see video,** also use `recording.mp4`. Every transcript segment's
+   `start_ms`/`end_ms` is measured **from the start of the video**, so a spoken
+   instruction maps to a specific on-screen moment. Ingest the mp4 directly, or
+   pull a still frame at a timestamp (`-ss` is in **seconds** = `start_ms` / 1000):
+
+   ```sh
+   ffmpeg -ss 12.500 -i recording.mp4 -frames:v 1 frame.png   # the moment at start_ms 12500
+   ```
+
+### 6.3 `transcript.json` schema
+
+```jsonc
+{
+  "language": "en",            // omitted if unknown
+  "duration_ms": 64200,
+  "segments": [
+    { "start_ms": 1250, "end_ms": 4800, "text": "First, open the settings panel." },
+    { "start_ms": 5000, "end_ms": 8200, "text": "See this dropdown — set it to manual." }
+  ]
+}
+```
+
+### 6.4 `recording.json` — manifest
+
+```jsonc
+{
+  "session_id": "2026-06-15T00-30-31_game",
+  "tool": "framewatch 0.4.0",
+  "kind": "recording",                         // distinguishes this from a capture session.json
+  "target": { "title": "My Game", "exe": "game.exe", "selected_via": "cli" },
+  "started_at": "...Z", "ended_at": "...Z",
+  "video": { "path": "recording.mp4", "container": "mp4", "codec": "h264",
+             "fps": 30.0, "width": 1920, "height": 1080, "duration_ms": 64200 },
+  // "audio" is omitted entirely for a video-only recording (no microphone):
+  "audio": { "path": "audio.wav", "sample_rate": 48000, "channels": 1, "duration_ms": 64300 },
+  "transcript": { "path": "transcript.json", "srt": "transcript.srt",
+                  "engine": "command",         // "command" | "none"
+                  "model": "whisper-cli -m … -f {audio} …", "segment_count": 2, "language": "en" },
+  "artifacts": ["recording.mp4","audio.wav","transcript.json","transcript.srt",
+                "recording.json","PROMPT.md","README_FOR_AGENT.md"]
+}
+```
+
+### 6.5 Transcription engines
+
+| Choice | Flag | Needs |
+|---|---|---|
+| External command | `--transcribe-cmd "<cmd>"` | any local transcriber on PATH (e.g. whisper.cpp's prebuilt `whisper-cli`) |
+| None | `--no-transcribe` | — (empty transcript; video + audio only) |
+
+framewatch bundles no speech-to-text engine — transcription is always done by
+shelling out via `--transcribe-cmd`, so there's nothing to compile and any
+transcriber works.
+
+There is no microphone, or you don't want one? Recording is video-only then: it
+warns and writes a package with no `audio.wav` and an empty transcript (and the
+manifest omits the `audio` block). `--no-audio` opts out of mic capture explicitly.
+
+The `--transcribe-cmd` template is whitespace-split (quotes group args). `{audio}`
+is replaced with the WAV path and `{output}` with a framewatch-chosen output base
+path; if neither placeholder appears, the WAV path is appended and framewatch reads
+the command's **stdout**. The command must emit **framewatch transcript JSON**
+(`{ "segments": [...] }`) or **SubRip (SRT)** — framewatch detects which.
+
+A live recording (real window + mic + ffmpeg) is Windows-only; the transcript /
+package / prompt code is pure and runs everywhere.

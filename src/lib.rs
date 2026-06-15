@@ -52,20 +52,37 @@ pub mod engine;
 pub mod error;
 pub mod event;
 pub mod frame;
+pub mod recording;
 pub mod session;
 pub mod sink;
+pub mod transcript;
+
+mod util;
+
+/// Pure audio helpers (downmix) for the recording runtime.
+#[cfg(feature = "record")]
+mod audioutil;
 
 #[cfg(feature = "gui")]
 pub mod gui;
+
+/// The continuous A/V recording runtime (`framewatch record`).
+#[cfg(feature = "record")]
+pub mod record;
 
 pub use capture::{enumerate_windows, CaptureBackend, ControlFlow, MockBackend};
 pub use clock::{Clock, MockClock, SystemClock};
 pub use config::{Config, ConfigBuilder, ImageOpts, RoiHint, RoiKind, Rotation, Target};
 pub use engine::Engine;
-pub use error::{CaptureError, Error, SinkError};
+pub use error::{CaptureError, Error, RecordError, SinkError, TranscribeError};
 pub use event::{CaptureEvent, CaptureMeta, EncodedImage, EventKind, ImageFormat, SaveMask};
 pub use frame::{RawFrame, Rect, WindowInfo};
+#[cfg(feature = "record")]
+pub use record::{record, RecordConfig, RecordOutcome};
+pub use recording::{PackageWriter, Recording, RecordingManifest};
 pub use sink::{ChannelSink, CompositeSink, DirectorySink, Sink};
+pub use transcript::{Transcriber, Transcript, TranscriptSegment};
+pub use util::tokenize;
 
 /// Construct the platform default capture backend for `config`.
 ///

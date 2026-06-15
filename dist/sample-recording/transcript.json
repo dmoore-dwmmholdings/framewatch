@@ -1,0 +1,26 @@
+{
+  "language": "en",
+  "duration_ms": 19000,
+  "segments": [
+    {
+      "start_ms": 800,
+      "end_ms": 4200,
+      "text": "Okay, I'm going to show you the bug. First, open the Settings panel from the gear icon in the top right."
+    },
+    {
+      "start_ms": 4800,
+      "end_ms": 9000,
+      "text": "See this \"Sync\" toggle here? Turn it on, and watch the status line at the bottom."
+    },
+    {
+      "start_ms": 9600,
+      "end_ms": 14500,
+      "text": "It flashes \"connected\" for a second, then flips back to \"offline\" — that's the bug I want fixed."
+    },
+    {
+      "start_ms": 15200,
+      "end_ms": 19000,
+      "text": "The relevant code is in sync_manager.rs; the reconnect handler never clears the old socket."
+    }
+  ]
+}

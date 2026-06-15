@@ -103,6 +103,24 @@ pub struct ManifestTarget {
     pub selected_via: String,
 }
 
+impl ManifestTarget {
+    /// Build a descriptor from a [`Target`] and how it was selected. `class` is
+    /// left `None` (it is only known once a window is resolved).
+    pub fn from_target(target: &Target, selected_via: &str) -> Self {
+        let (title, exe) = match target {
+            Target::ByTitleRegex(t) => (Some(t.clone()), None),
+            Target::ByExe(e) => (None, Some(e.clone())),
+            Target::ByHwnd(_) | Target::ByPid(_) => (None, None),
+        };
+        Self {
+            title,
+            exe,
+            class: None,
+            selected_via: selected_via.to_string(),
+        }
+    }
+}
+
 /// A compact view of config knobs recorded in the manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestConfig {
@@ -154,20 +172,10 @@ pub struct SessionManifest {
 impl SessionManifest {
     /// Build the initial manifest for a session.
     pub fn new(session: &Session, config: &Config, selected_via: &str) -> Self {
-        let (title, exe) = match &config.target {
-            Target::ByTitleRegex(t) => (Some(t.clone()), None),
-            Target::ByExe(e) => (None, Some(e.clone())),
-            Target::ByHwnd(_) | Target::ByPid(_) => (None, None),
-        };
         Self {
             session_id: session.id.clone(),
             tool: format!("framewatch {}", env!("CARGO_PKG_VERSION")),
-            target: ManifestTarget {
-                title,
-                exe,
-                class: None,
-                selected_via: selected_via.to_string(),
-            },
+            target: ManifestTarget::from_target(&config.target, selected_via),
             started_at: session.started_at,
             ended_at: None,
             config: ManifestConfig {

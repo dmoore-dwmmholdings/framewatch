@@ -1,4 +1,4 @@
-//! The `framewatch` CLI: `windows`, `watch`, `shot`, and `gui` subcommands.
+//! The `framewatch` CLI: `windows`, `watch`, `shot`, `record`, and `gui` subcommands.
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
@@ -34,6 +34,9 @@ enum Command {
     /// One-shot: (optionally launch a program,) capture one settled frame to a
     /// single file, print its path, and exit. Ideal for scripted/batch capture.
     Shot(ShotArgs),
+    /// Record a window to video while narrating into the mic, then write an
+    /// LLM-ready package (video + timestamped transcript + prompt).
+    Record(RecordArgs),
     /// Launch the GUI picker / ROI editor.
     Gui(GuiArgs),
 }
@@ -137,6 +140,58 @@ struct ShotArgs {
 }
 
 #[derive(Args)]
+struct RecordArgs {
+    /// Match the window title against this regex.
+    #[arg(long, group = "target")]
+    title: Option<String>,
+    /// Match by executable basename, e.g. "Code.exe".
+    #[arg(long, group = "target")]
+    exe: Option<String>,
+    /// Match by native window handle.
+    #[arg(long, group = "target")]
+    hwnd: Option<isize>,
+    /// Match the window owned by this process id.
+    #[arg(long, group = "target")]
+    pid: Option<u32>,
+    /// Launch this command, record its window (by PID), then kill it on stop.
+    /// The launch string is whitespace-split (use `"..."` to group an argument).
+    #[arg(long)]
+    launch: Option<String>,
+    /// Parent output directory (a per-recording subdir is created inside it).
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Crop the recorded region to a pixel rect `X,Y,W,H` (clips host chrome).
+    #[arg(long, value_name = "X,Y,W,H")]
+    roi: Option<String>,
+    /// Wait up to N seconds for the target window to appear before failing.
+    #[arg(long)]
+    wait: Option<u64>,
+    /// Auto-stop after N seconds (otherwise record until Ctrl+C).
+    #[arg(long)]
+    duration: Option<u64>,
+    /// Target video frames per second (1..=60).
+    #[arg(long, default_value_t = 30)]
+    fps: u32,
+    /// Microphone input device name (substring match; default: system default).
+    #[arg(long)]
+    mic: Option<String>,
+    /// Don't capture the microphone — record video only (also skips transcription).
+    #[arg(long)]
+    no_audio: bool,
+    /// Transcribe the narration by shelling out to a local transcriber (e.g.
+    /// whisper.cpp's `whisper-cli`). `{audio}` and `{output}` are substituted;
+    /// the command must emit framewatch transcript JSON or SRT.
+    #[arg(long, value_name = "CMD")]
+    transcribe_cmd: Option<String>,
+    /// Skip transcription (record video + audio only).
+    #[arg(long, conflicts_with = "transcribe_cmd")]
+    no_transcribe: bool,
+    /// Load a base config from this TOML file (for `out`/`target`/`roi` defaults).
+    #[arg(long)]
+    config: Option<PathBuf>,
+}
+
+#[derive(Args)]
 struct GuiArgs {
     /// Load a base config from this TOML file.
     #[arg(long)]
@@ -151,6 +206,7 @@ fn main() -> Result<()> {
         Command::Windows => cmd_windows(),
         Command::Watch(args) => cmd_watch(args),
         Command::Shot(args) => cmd_shot(args),
+        Command::Record(args) => cmd_record(args),
         Command::Gui(args) => cmd_gui(args),
     }
 }
@@ -327,7 +383,7 @@ fn select_shot_frame(events: &[CaptureEvent], best_effort: bool) -> Option<&Enco
 
 /// Spawn a process from a whitespace-split command string (double quotes group).
 fn spawn_launch(cmd: &str) -> Result<std::process::Child> {
-    let tokens = tokenize(cmd);
+    let tokens = framewatch::tokenize(cmd);
     let (program, rest) = tokens
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("--launch is empty"))?;
@@ -337,26 +393,188 @@ fn spawn_launch(cmd: &str) -> Result<std::process::Child> {
         .map_err(Into::into)
 }
 
-/// Whitespace-split a command, respecting `"double quotes"`.
-fn tokenize(s: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut in_quote = false;
-    for ch in s.chars() {
-        match ch {
-            '"' => in_quote = !in_quote,
-            c if c.is_whitespace() && !in_quote => {
-                if !cur.is_empty() {
-                    out.push(std::mem::take(&mut cur));
-                }
+#[cfg(feature = "record")]
+fn cmd_record(args: RecordArgs) -> Result<()> {
+    use framewatch::recording::{files, AudioMeta, VideoMeta};
+    use framewatch::{record, PackageWriter, RecordConfig, RecordingManifest, Transcriber};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    // Base config supplies out_dir / target / crop defaults.
+    let base = match &args.config {
+        Some(path) => Config::from_toml_path(path).context("loading config")?,
+        None => Config::default(),
+    };
+
+    // 1. Optionally launch the target; then capture its window by PID.
+    let mut child = match &args.launch {
+        Some(cmd) => Some(spawn_launch(cmd).context("launching --launch command")?),
+        None => None,
+    };
+    let target = if let Some(c) = &child {
+        Target::ByPid(c.id())
+    } else if let Some(t) = args.title {
+        Target::ByTitleRegex(t)
+    } else if let Some(e) = args.exe {
+        Target::ByExe(e)
+    } else if let Some(h) = args.hwnd {
+        Target::ByHwnd(h)
+    } else if let Some(p) = args.pid {
+        Target::ByPid(p)
+    } else {
+        base.target.clone()
+    };
+    if matches!(&target, Target::ByTitleRegex(s) | Target::ByExe(s) if s.is_empty()) {
+        anyhow::bail!("provide a selector (--title/--exe/--hwnd/--pid) or --launch");
+    }
+
+    // 2. Choose the transcriber up front. `--no-audio` implies no transcription
+    //    (there's nothing to transcribe).
+    let transcriber = if args.no_transcribe || args.no_audio {
+        Transcriber::Disabled
+    } else if let Some(cmd) = args.transcribe_cmd.clone() {
+        Transcriber::Command { template: cmd }
+    } else {
+        eprintln!(
+            "framewatch: no transcription requested — recording video + audio only \
+             (pass --transcribe-cmd \"<transcriber>\"; --no-transcribe silences this)."
+        );
+        Transcriber::Disabled
+    };
+
+    // 3. Output package directory.
+    let out_dir = args.out.unwrap_or(base.out_dir);
+    let crop = match args.roi.as_deref() {
+        Some(spec) => Some(parse_roi(spec)?),
+        None => base.crop,
+    };
+    let started_at = chrono::Utc::now();
+    let hint = framewatch::session::target_hint(&target);
+    let writer = PackageWriter::new(&out_dir, started_at, &hint).context("creating package dir")?;
+    let dir = writer.recording().dir.clone();
+
+    // 4. Stop on Ctrl+C or after --duration.
+    let stop = Arc::new(AtomicBool::new(false));
+    {
+        let stop = stop.clone();
+        let _ = ctrlc::set_handler(move || stop.store(true, Ordering::SeqCst));
+    }
+    if let Some(secs) = args.duration {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(secs.saturating_mul(1000)));
+            stop.store(true, Ordering::SeqCst);
+        });
+    }
+
+    // 5. Record until stopped.
+    println!("framewatch: recording to {}", dir.display());
+    match args.duration {
+        Some(secs) => println!("framewatch: will stop after {secs}s (or Ctrl+C)."),
+        None => println!("framewatch: press Ctrl+C to stop."),
+    }
+    let rcfg = RecordConfig {
+        target: target.clone(),
+        crop,
+        fps: args.fps,
+        mic: args.mic.clone(),
+        capture_audio: !args.no_audio,
+        video_out: writer.recording().video_path(),
+        audio_out: writer.recording().audio_path(),
+        work_dir: dir.clone(),
+        wait_ms: args
+            .wait
+            .map(|s| s.saturating_mul(1000))
+            .unwrap_or(base.wait_ms),
+        stop,
+    };
+    let outcome = record(rcfg);
+
+    // Always tear down a launched child before reporting.
+    if let Some(c) = child.as_mut() {
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+    let outcome = outcome.context("recording")?;
+
+    // 6. Transcribe — only if audio was actually captured. A failure is
+    //    non-fatal: keep the captured media and write a package without a
+    //    transcript.
+    let (transcript, engine, model) = match &outcome.audio {
+        Some(_) => match transcriber.transcribe(&writer.recording().audio_path(), &dir) {
+            Ok(t) => {
+                let (engine, model) = transcriber.engine_meta();
+                (t, engine, model)
             }
-            c => cur.push(c),
+            Err(e) => {
+                eprintln!(
+                    "framewatch: transcription failed ({e}); writing package without a transcript."
+                );
+                (framewatch::Transcript::default(), "none", None)
+            }
+        },
+        None => {
+            eprintln!("framewatch: no audio was recorded; the package is video-only.");
+            (framewatch::Transcript::default(), "none", None)
         }
+    };
+
+    // 7. Assemble + write the package.
+    writer
+        .write_transcript(&transcript)
+        .context("writing transcript")?;
+    let audio_meta = outcome.audio.as_ref().map(|a| AudioMeta {
+        path: files::AUDIO.to_string(),
+        sample_rate: a.sample_rate,
+        channels: a.channels,
+        duration_ms: a.duration_ms,
+    });
+    let mut manifest = RecordingManifest::new(
+        writer.recording(),
+        &target,
+        "cli",
+        VideoMeta {
+            path: files::VIDEO.to_string(),
+            container: outcome.container.clone(),
+            codec: outcome.codec.clone(),
+            fps: outcome.fps,
+            width: outcome.width,
+            height: outcome.height,
+            duration_ms: outcome.video_duration_ms,
+        },
+        audio_meta,
+        &transcript,
+        engine,
+        model,
+        outcome.ended_at,
+    );
+    // Enrich the target descriptor with the resolved window's real title/exe.
+    if !outcome.window_title.is_empty() {
+        manifest.target.title = Some(outcome.window_title.clone());
     }
-    if !cur.is_empty() {
-        out.push(cur);
+    if !outcome.window_exe.is_empty() {
+        manifest.target.exe = Some(outcome.window_exe.clone());
     }
-    out
+    writer
+        .finalize(&manifest, &transcript)
+        .context("writing package")?;
+
+    println!(
+        "framewatch: wrote recording package to {} ({} transcript segment(s))",
+        dir.display(),
+        transcript.segments.len()
+    );
+    // The prompt path on its own line, machine-readable for scripts.
+    println!("{}", writer.recording().prompt_path().display());
+    Ok(())
+}
+
+#[cfg(not(feature = "record"))]
+fn cmd_record(_args: RecordArgs) -> Result<()> {
+    anyhow::bail!(
+        "this build has no recording support. Reinstall with \
+         `cargo install framewatch --features \"cli wgc record\"` (Windows; needs ffmpeg on PATH)."
+    )
 }
 
 #[cfg(feature = "gui")]
@@ -380,16 +598,6 @@ fn cmd_gui(_args: GuiArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tokenize_respects_quotes_and_whitespace() {
-        assert_eq!(
-            tokenize("game.exe --freecam --pos \"1 2 3\""),
-            vec!["game.exe", "--freecam", "--pos", "1 2 3"]
-        );
-        assert_eq!(tokenize("   a   b  "), vec!["a", "b"]);
-        assert!(tokenize("   ").is_empty());
-    }
 
     #[test]
     fn parse_roi_ok_and_errors() {

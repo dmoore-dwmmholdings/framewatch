@@ -1,14 +1,15 @@
 {
   "tool": "framewatch",
-  "version": "0.1.0",
-  "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents.",
+  "version": "0.4.0",
+  "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents; plus a `record` mode that bundles a narrated screen recording + timestamped transcript into an LLM package.",
   "docs": "docs/AGENT_INTEGRATION.md",
   "sample_session": "dist/sample-session",
+  "sample_recording": "dist/sample-recording",
   "binary": {
     "relative_path": "dist/framewatch.exe",
     "path_note": "Paths are relative to the repository root. Resolve relative_path against your checkout to get an absolute path.",
     "platform": "windows-x86_64",
-    "features": ["cli", "wgc", "gui"],
+    "features": ["cli", "wgc", "gui", "record"],
     "version_command": "framewatch.exe --version"
   },
   "commands": [
@@ -70,6 +71,33 @@
       "example": "framewatch.exe shot --launch \"game.exe --freecam\" --out-file shot.png --timeout 25"
     },
     {
+      "name": "record",
+      "summary": "Continuously record a window to video while narrating into the mic, transcribe locally, and write an LLM package (video + timestamped transcript + prompt). Requires the `record` feature and ffmpeg on PATH.",
+      "invoke": "framewatch.exe record <selector|--launch \"<cmd>\"> [--out <dir>] [--duration <secs>] [--fps <n>] [--mic <name>] [--roi X,Y,W,H] [--transcribe-cmd \"<cmd>\" | --no-transcribe | --no-audio]",
+      "blocking": true,
+      "stop": "Ctrl+C (mp4 is finalized cleanly), or after --duration",
+      "selectors": {
+        "--title": "regex matched against the window title",
+        "--exe": "executable basename",
+        "--hwnd": "exact numeric window handle",
+        "--pid": "exact: the window owned by this process id",
+        "--launch": "spawn this program and record its window by PID, then kill it on stop"
+      },
+      "options": {
+        "--out": "output parent directory (a per-recording subdir is created)",
+        "--duration": "auto-stop after N seconds (otherwise record until Ctrl+C)",
+        "--fps": "target video frames per second (default 30, clamped 1..=60)",
+        "--mic": "microphone device name substring (default: system default input)",
+        "--no-audio": "record video only (no microphone / transcription); also the automatic fallback when no input device is available",
+        "--roi": "crop the recorded region to a pixel rect X,Y,W,H",
+        "--wait": "wait up to N seconds for the target window to appear",
+        "--transcribe-cmd": "transcribe by shelling out to a local transcriber; {audio}/{output} substituted; command emits framewatch JSON or SRT",
+        "--no-transcribe": "record video + audio only (empty transcript)"
+      },
+      "stdout": "first line: the package directory; last line: the PROMPT.md path",
+      "example": "framewatch.exe record --title \"My Game\" --duration 60 --transcribe-cmd \"whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}\""
+    },
+    {
       "name": "gui",
       "summary": "Launch the GUI window picker / ROI editor (for humans).",
       "invoke": "framewatch.exe gui [--config <file>]",
@@ -120,6 +148,26 @@
     "Use coalesced_frames to know how much activity each saved image represents.",
     "Use busy_start / value_sample notes for timing context without opening images."
   ],
+  "recording_output": {
+    "note": "Produced by the `record` command (see docs section 6 + dist/sample-recording).",
+    "package_dir": "<out_dir>/<session_id>",
+    "files": {
+      "prompt": "PROMPT.md (start here; transcript embedded inline)",
+      "video": "recording.mp4 (window video; narration muxed in)",
+      "audio": "audio.wav (raw mic narration)",
+      "transcript_json": "transcript.json",
+      "transcript_srt": "transcript.srt",
+      "manifest": "recording.json",
+      "agent_readme": "README_FOR_AGENT.md"
+    },
+    "transcript_json_shape": "{ language?, duration_ms, segments: [{ start_ms, end_ms, text }] }",
+    "timestamp_meaning": "segment start_ms/end_ms are ms from the start of recording.mp4 — seek the video to a quoted instruction, e.g. ffmpeg -ss <start_ms/1000> -i recording.mp4 -frames:v 1 frame.png",
+    "consume_algorithm": [
+      "Read PROMPT.md — it is self-contained (transcript inline) for text-only models.",
+      "If you can ingest video, open recording.mp4 and use each segment's start_ms to locate the on-screen moment an instruction refers to.",
+      "recording.json records the engine used and video/audio metadata."
+    ]
+  },
   "library": {
     "crate": "framewatch",
     "cargo_dependency": "framewatch = { path = \"../framewatch\", default-features = false }  # or version = \"0.1\" once published",

@@ -78,6 +78,49 @@ framewatch watch --title "Visual Studio Code" --out ./.framewatch
 framewatch watch --config framewatch.toml
 ```
 
+## Record & narrate → an LLM package (V4)
+
+Sometimes you don't want a deduped story — you want to *show and tell*. The
+`record` subcommand (build with `--features "wgc record"`, needs `ffmpeg` on
+PATH) **continuously** records one window to video while you narrate into the
+microphone, then transcribes the narration locally and bundles everything an LLM
+needs to act on it:
+
+```sh
+# Record a window for 60s (or stop early with Ctrl+C) while you talk, and
+# transcribe the narration with any local transcriber via --transcribe-cmd:
+framewatch record --title "My Game" --duration 60 \
+    --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}"
+```
+
+It writes a package directory:
+
+```text
+recording.mp4         # the window video (your narration muxed in)
+audio.wav             # the raw mic narration
+transcript.json/.srt  # segments with start_ms/end_ms from video start
+recording.json        # manifest
+PROMPT.md             # the prompt to hand the model (transcript inline)
+README_FOR_AGENT.md
+```
+
+Because every transcript segment is timestamped from the start of the video, a
+model can correlate "click *this*" with the exact on-screen moment — ingesting
+`recording.mp4` directly or pulling a frame with
+`ffmpeg -ss <seconds> -i recording.mp4 -frames:v 1 frame.png`. See the
+[recording-package contract](docs/AGENT_INTEGRATION.md#6-recording-packages-record).
+
+> **Transcription** is done by `--transcribe-cmd`: framewatch shells out to a
+> local transcriber you already have — whisper.cpp's prebuilt `whisper-cli`,
+> `faster-whisper`, `openai-whisper`, etc. `{audio}` and `{output}` are
+> substituted; the command writes framewatch transcript JSON or SRT. framewatch
+> bundles no speech-to-text engine, so it stays light and there's nothing to
+> compile.
+>
+> **No microphone?** Recording degrades gracefully — it warns and produces a
+> **video-only** package (no transcript). Pass `--no-audio` to opt out of mic
+> capture explicitly.
+
 ## The agent-consumption contract
 
 A session directory (`./.framewatch/<session_id>/`) contains:
@@ -146,6 +189,7 @@ detection pipeline is unit-tested without a GPU, screen, or Windows.
 | `cli` | ✅ | the `framewatch` binary (clap) |
 | `wgc` | | Windows Graphics Capture backend + window enumeration |
 | `gui` | | eframe/egui window picker & ROI editor |
+| `record` | | `record` subcommand: window video (via `ffmpeg`) + mic (`cpal`) → LLM package |
 | `jpeg` / `webp` | | extra image encoders |
 | `llm` | | reserved: out-of-band vision-caption sink |
 
