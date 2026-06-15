@@ -447,7 +447,7 @@ falls back to video-only automatically.
 
 ### 6.1 Package layout
 
-```
+```text
 <out_dir>/<session_id>/
 ├─ PROMPT.md            # START HERE — the task prompt, transcript inline
 ├─ recording.mp4        # the window video (narration muxed in)

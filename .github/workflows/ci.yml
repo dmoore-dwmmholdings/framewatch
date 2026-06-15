@@ -45,7 +45,7 @@ jobs:
         run: cargo doc --no-deps
 
   windows:
-    name: Windows (gui + wgc)
+    name: Windows (gui + wgc + record)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

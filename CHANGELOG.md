@@ -10,6 +10,7 @@ changes bump the minor version).
 ## [0.4.0] - 2026-06-15
 
 ### Added
+
 - **`record` subcommand + recording packages (V4).** A new mode that is the
   deliberate opposite of `watch`: it *continuously* records one window to video
   while you narrate into the microphone, then locally transcribes the narration
@@ -43,11 +44,13 @@ changes bump the minor version).
   `Recording` / `RecordingManifest` / `PackageWriter`, and `tokenize`.
 
 ### Changed
+
 - Video encoding shells out to `ffmpeg` (must be on PATH); microphone capture
   uses the pure-Rust `cpal` crate. Both are behind the optional `record` feature,
   so default and library builds are unaffected.
 
 ### Internal
+
 - Extracted `ManifestTarget::from_target` (shared by the session and recording
   manifests) and moved the launch-string `tokenize` into the library.
 

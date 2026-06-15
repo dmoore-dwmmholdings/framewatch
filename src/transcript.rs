@@ -14,7 +14,7 @@
 use crate::error::TranscribeError;
 use crate::util::tokenize;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// One spoken span. `start_ms`/`end_ms` are milliseconds from the start of the
 /// recording (the same clock as the video), so a consumer can seek the video to
@@ -195,8 +195,17 @@ fn transcribe_command(
     // Output *base* path (no extension) so tools that append `.srt`/`.json`
     // (e.g. whisper-cli `-of`) land somewhere we can find.
     let output_base = work_dir.join("transcript_raw");
+    let output_json = output_base.with_extension("json");
+    let output_srt = output_base.with_extension("srt");
     let output_base_str = output_base.to_string_lossy().into_owned();
 
+    // Catch malformed templates early: `tokenize` silently swallows a dangling
+    // quote, which would otherwise fail later with a less actionable error.
+    if template.chars().filter(|&c| c == '"').count() % 2 != 0 {
+        return Err(TranscribeError::Parse(
+            "unbalanced quotes in --transcribe-cmd".into(),
+        ));
+    }
     let tokens = tokenize(template);
     if tokens.is_empty() {
         return Err(TranscribeError::Parse("empty --transcribe-cmd".into()));
@@ -223,6 +232,14 @@ fn transcribe_command(
         argv.push(audio);
     }
 
+    // Clear any leftover {output} files first, so a transcriber that writes
+    // nothing this run can't make us read a stale transcript from a reused dir.
+    if used_output {
+        for p in [&output_base, &output_json, &output_srt] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
     let program = argv.remove(0);
     let out = std::process::Command::new(&program).args(&argv).output()?;
     if !out.status.success() {
@@ -233,9 +250,8 @@ fn transcribe_command(
 
     // Prefer a written {output} file (extension tells us the format); else stdout.
     if used_output {
-        for (ext, fmt) in [("json", Blob::Json), ("srt", Blob::Srt)] {
-            let cand = PathBuf::from(format!("{output_base_str}.{ext}"));
-            if let Ok(raw) = std::fs::read_to_string(&cand) {
+        for (cand, fmt) in [(&output_json, Blob::Json), (&output_srt, Blob::Srt)] {
+            if let Ok(raw) = std::fs::read_to_string(cand) {
                 if !raw.trim().is_empty() {
                     return parse_transcript_text(&raw, Some(fmt));
                 }
@@ -346,5 +362,16 @@ mod tests {
             .unwrap();
         assert!(t.is_empty());
         assert_eq!(Transcriber::Disabled.engine_meta().0, "none");
+    }
+
+    #[test]
+    fn command_rejects_unbalanced_quotes() {
+        let t = Transcriber::Command {
+            template: "prog \"unterminated".into(),
+        };
+        let err = t
+            .transcribe(Path::new("audio.wav"), Path::new("."))
+            .unwrap_err();
+        assert!(matches!(err, TranscribeError::Parse(_)));
     }
 }

@@ -95,7 +95,7 @@ framewatch record --title "My Game" --duration 60 \
 
 It writes a package directory:
 
-```
+```text
 recording.mp4         # the window video (your narration muxed in)
 audio.wav             # the raw mic narration
 transcript.json/.srt  # segments with start_ms/end_ms from video start
