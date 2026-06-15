@@ -7,6 +7,23 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-15
+
+### Fixed
+
+- **`record`: Ctrl+C now finalizes the recording instead of erroring.** On
+  Windows the console delivers Ctrl+C to the whole process group, so the child
+  `ffmpeg` was being killed mid-write and finalize failed with an ffmpeg error
+  (no package produced). ffmpeg is now spawned in its own process group
+  (`CREATE_NEW_PROCESS_GROUP`); on stop we close its stdin so it finalizes the
+  mp4 cleanly. (`--duration` stops were unaffected.)
+- **`--title` now matches a case-insensitive literal substring instead of a
+  regex.** Window titles routinely contain regex-special characters (Windows
+  paths with `\`, `(beta)`, `.`), so a copied-and-quoted title would silently
+  fail to match (or error on an invalid escape). Matching as plain text is what
+  users expect — `--title "discord"` matches "Discord", and titles with spaces or
+  backslashes work as typed. Applies to `watch` / `shot` / `record`.
+
 ## [0.4.0] - 2026-06-15
 
 ### Added
@@ -141,7 +158,8 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.1.0...v0.2.0

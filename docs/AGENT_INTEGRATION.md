@@ -68,7 +68,7 @@ Selectors (choose one):
 
 | Flag | Meaning |
 |---|---|
-| `--title <regex>` | match window title against a regular expression |
+| `--title <text>` | match window title by a case-insensitive substring (literal, not a regex) |
 | `--exe <name>` | match executable basename, e.g. `Code.exe` (case-insensitive) |
 | `--hwnd <id>` | match the exact numeric window handle |
 | `--pid <id>` | match the window owned by this **process id** — exact, so back-to-back captures never latch onto a *stale* window from an earlier run of the same exe |
@@ -395,7 +395,7 @@ Full API docs: `cargo doc --open` (or docs.rs once published).
 dist\framewatch.exe windows
 
 # capture (blocks; Ctrl+C to stop) — pick ONE selector
-dist\framewatch.exe watch --title "<regex>" --out ./.framewatch
+dist\framewatch.exe watch --title "<substring>" --out ./.framewatch
 dist\framewatch.exe watch --exe   "Code.exe"
 dist\framewatch.exe watch --hwnd  67890
 dist\framewatch.exe watch --config framewatch.toml

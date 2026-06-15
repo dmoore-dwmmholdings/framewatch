@@ -11,7 +11,6 @@ use crate::error::CaptureError;
 use crate::frame::{RawFrame, WindowInfo};
 use chrono::Utc;
 use crossbeam_channel::{bounded, RecvTimeoutError, Sender};
-use regex::Regex;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -143,14 +142,21 @@ fn resolve_target(target: &Target) -> Result<Window, CaptureError> {
                 Err(CaptureError::TargetNotFound(format!("hwnd {h}")))
             }
         }
-        Target::ByTitleRegex(re) => {
-            let regex = Regex::new(re)
-                .map_err(|e| CaptureError::Backend(format!("invalid title regex: {e}")))?;
+        Target::ByTitleRegex(query) => {
+            // Case-insensitive literal substring match. Window titles routinely
+            // contain regex-special characters (paths with `\`, `(beta)`, `.`),
+            // so matching the query as plain text is far less surprising than a
+            // regex — and `--title "discord"` still matches "Discord".
+            let needle = query.to_lowercase();
             let windows = Window::enumerate().map_err(|e| CaptureError::Backend(e.to_string()))?;
             windows
                 .into_iter()
-                .find(|w| w.title().map(|t| regex.is_match(&t)).unwrap_or(false))
-                .ok_or_else(|| CaptureError::TargetNotFound(format!("title ~ /{re}/")))
+                .find(|w| {
+                    w.title()
+                        .map(|t| t.to_lowercase().contains(&needle))
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| CaptureError::TargetNotFound(format!("title containing {query:?}")))
         }
         Target::ByExe(name) => {
             let windows = Window::enumerate().map_err(|e| CaptureError::Backend(e.to_string()))?;

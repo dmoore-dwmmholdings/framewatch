@@ -16,7 +16,10 @@ pub enum Target {
     /// Match by native window handle.
     #[serde(rename = "hwnd")]
     ByHwnd(isize),
-    /// Match the window title against a regular expression.
+    /// Match the window title by a case-insensitive substring.
+    ///
+    /// (The variant name is historical — matching is a literal substring, not a
+    /// regex, since window titles routinely contain regex-special characters.)
     #[serde(rename = "title")]
     ByTitleRegex(String),
     /// Match by executable basename (e.g. `"Code.exe"`).

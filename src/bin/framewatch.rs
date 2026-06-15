@@ -43,7 +43,7 @@ enum Command {
 
 #[derive(Args)]
 struct WatchArgs {
-    /// Match the window title against this regex.
+    /// Match the window title by a case-insensitive substring.
     #[arg(long, group = "target")]
     title: Option<String>,
     /// Match by executable basename, e.g. "Code.exe".
@@ -102,7 +102,7 @@ fn parse_roi(spec: &str) -> Result<framewatch::Rect> {
 
 #[derive(Args)]
 struct ShotArgs {
-    /// Match the window title against this regex.
+    /// Match the window title by a case-insensitive substring.
     #[arg(long, group = "target")]
     title: Option<String>,
     /// Match by executable basename, e.g. "Code.exe".
@@ -141,7 +141,7 @@ struct ShotArgs {
 
 #[derive(Args)]
 struct RecordArgs {
-    /// Match the window title against this regex.
+    /// Match the window title by a case-insensitive substring.
     #[arg(long, group = "target")]
     title: Option<String>,
     /// Match by executable basename, e.g. "Code.exe".
