@@ -132,7 +132,7 @@ pub struct TranscriptMeta {
     pub path: String,
     /// Relative path to `transcript.srt`.
     pub srt: String,
-    /// Engine used: `"whisper.cpp"`, `"command"`, or `"none"`.
+    /// Engine used: `"command"` (an external `--transcribe-cmd`) or `"none"`.
     pub engine: String,
     /// Model file / command template, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -73,7 +73,7 @@
     {
       "name": "record",
       "summary": "Continuously record a window to video while narrating into the mic, transcribe locally, and write an LLM package (video + timestamped transcript + prompt). Requires the `record` feature and ffmpeg on PATH.",
-      "invoke": "framewatch.exe record <selector|--launch \"<cmd>\"> [--out <dir>] [--duration <secs>] [--fps <n>] [--mic <name>] [--roi X,Y,W,H] [--whisper-model <path> | --transcribe-cmd \"<cmd>\" | --no-transcribe]",
+      "invoke": "framewatch.exe record <selector|--launch \"<cmd>\"> [--out <dir>] [--duration <secs>] [--fps <n>] [--mic <name>] [--roi X,Y,W,H] [--transcribe-cmd \"<cmd>\" | --no-transcribe | --no-audio]",
       "blocking": true,
       "stop": "Ctrl+C (mp4 is finalized cleanly), or after --duration",
       "selectors": {

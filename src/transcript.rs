@@ -6,10 +6,10 @@
 //! the recording — the same clock as the video — so a consumer can map a spoken
 //! instruction to the exact moment it refers to in `recording.mp4`.
 //!
-//! Two engines are supported (see [`Transcriber`]): bundled whisper.cpp (the
-//! `whisper` feature) and an external `--transcribe-cmd`. The external path and
-//! all of the formatting/parsing here are pure and cross-platform, so they are
-//! exercised on every CI target without building whisper.cpp.
+//! framewatch bundles no speech-to-text engine: transcription is done by
+//! shelling out to a local transcriber via `--transcribe-cmd` (see
+//! [`Transcriber`]). Everything here — the types and the SRT/JSON
+//! formatting/parsing — is pure and cross-platform, exercised on every CI target.
 
 use crate::error::TranscribeError;
 use crate::util::tokenize;

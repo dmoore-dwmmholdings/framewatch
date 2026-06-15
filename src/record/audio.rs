@@ -1,7 +1,7 @@
 //! Microphone capture via `cpal`, written to a mono i16 WAV (`hound`) at the
-//! device's native sample rate. The bundled whisper transcriber resamples to
-//! 16 kHz when it reads the WAV; keeping the capture rate native gives the muxed
-//! recording decent audio and keeps the realtime path a cheap streaming write.
+//! device's native sample rate. Keeping the capture rate native gives the muxed
+//! recording decent audio and keeps the realtime path a cheap streaming write
+//! (the `--transcribe-cmd` transcriber resamples as needed when it reads the WAV).
 
 use crate::audioutil::downmix_to_mono;
 use crate::error::RecordError;
