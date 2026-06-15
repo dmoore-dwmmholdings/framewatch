@@ -55,11 +55,11 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build (gui + wgc)
-        run: cargo build --features "gui wgc"
+      - name: Build (gui + wgc + record)
+        run: cargo build --features "gui wgc record"
 
-      - name: Clippy (gui + wgc)
-        run: cargo clippy --features "gui wgc" --all-targets -- -D warnings
+      - name: Clippy (gui + wgc + record)
+        run: cargo clippy --features "gui wgc record" --all-targets -- -D warnings
 
-      - name: Test (gui + wgc)
-        run: cargo test --features "gui wgc"
+      - name: Test (gui + wgc + record)
+        run: cargo test --features "gui wgc record"

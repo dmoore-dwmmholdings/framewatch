@@ -4,7 +4,7 @@
 //! this path records *every* paced frame of one window to an `ffmpeg`-encoded
 //! mp4 while capturing the microphone, then hands the finished media to a
 //! [`PackageWriter`](crate::recording::PackageWriter). It is Windows-only (it
-//! drives the WGC backend); on other platforms [`record`] returns
+//! drives the WGC backend); on other platforms [`record()`] returns
 //! [`RecordError::Unsupported`].
 
 use crate::config::Target;

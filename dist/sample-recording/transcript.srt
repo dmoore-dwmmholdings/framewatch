@@ -1,0 +1,16 @@
+1
+00:00:00,800 --> 00:00:04,200
+Okay, I'm going to show you the bug. First, open the Settings panel from the gear icon in the top right.
+
+2
+00:00:04,800 --> 00:00:09,000
+See this "Sync" toggle here? Turn it on, and watch the status line at the bottom.
+
+3
+00:00:09,600 --> 00:00:14,500
+It flashes "connected" for a second, then flips back to "offline" — that's the bug I want fixed.
+
+4
+00:00:15,200 --> 00:00:19,000
+The relevant code is in sync_manager.rs; the reconnect handler never clears the old socket.
+

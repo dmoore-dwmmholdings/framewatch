@@ -1,0 +1,44 @@
+{
+  "session_id": "2026-06-15T00-30-31_myapp",
+  "tool": "framewatch 0.4.0",
+  "kind": "recording",
+  "target": {
+    "title": "Settings — MyApp",
+    "exe": "myapp.exe",
+    "selected_via": "cli"
+  },
+  "started_at": "2026-06-15T00:30:31Z",
+  "ended_at": "2026-06-15T00:30:50Z",
+  "video": {
+    "path": "recording.mp4",
+    "container": "mp4",
+    "codec": "h264",
+    "fps": 30.0,
+    "width": 1920,
+    "height": 1080,
+    "duration_ms": 19000
+  },
+  "audio": {
+    "path": "audio.wav",
+    "sample_rate": 48000,
+    "channels": 1,
+    "duration_ms": 19200
+  },
+  "transcript": {
+    "path": "transcript.json",
+    "srt": "transcript.srt",
+    "engine": "whisper.cpp",
+    "model": "ggml-base.en.bin",
+    "segment_count": 4,
+    "language": "en"
+  },
+  "artifacts": [
+    "recording.mp4",
+    "audio.wav",
+    "transcript.json",
+    "transcript.srt",
+    "recording.json",
+    "PROMPT.md",
+    "README_FOR_AGENT.md"
+  ]
+}

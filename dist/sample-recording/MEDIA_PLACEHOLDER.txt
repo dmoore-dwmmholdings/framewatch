@@ -1,0 +1,10 @@
+recording.mp4 and audio.wav are intentionally omitted from this sample.
+
+A real `framewatch record` run writes them alongside the JSON/Markdown files you
+see here — `recording.mp4` is the window video (H.264, with the narration muxed
+in) and `audio.wav` is the raw microphone narration. They are binary and large,
+so this checked-in sample ships only the text artifacts that define the contract
+(PROMPT.md, transcript.json, transcript.srt, recording.json, README_FOR_AGENT.md).
+
+The transcript here is illustrative. recording.json reports what the media would
+be (1920x1080 H.264 at 30 fps, ~19s; 48 kHz mono WAV).
