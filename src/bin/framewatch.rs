@@ -175,6 +175,9 @@ struct RecordArgs {
     /// Microphone input device name (substring match; default: system default).
     #[arg(long)]
     mic: Option<String>,
+    /// Don't capture the microphone — record video only (also skips transcription).
+    #[arg(long)]
+    no_audio: bool,
     /// Transcribe locally with a bundled whisper model (GGML/GGUF `.bin`).
     /// Requires a build with `--features whisper`.
     #[arg(long, value_name = "PATH")]
@@ -432,7 +435,8 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     }
 
     // 2. Choose the transcriber up front (fail fast on a misconfigured build).
-    let transcriber = if args.no_transcribe {
+    //    `--no-audio` implies no transcription (there's nothing to transcribe).
+    let transcriber = if args.no_transcribe || args.no_audio {
         Transcriber::Disabled
     } else if let Some(model) = args.whisper_model.clone() {
         make_whisper(model, args.language.clone())?
@@ -482,6 +486,7 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
         crop,
         fps: args.fps,
         mic: args.mic.clone(),
+        capture_audio: !args.no_audio,
         video_out: writer.recording().video_path(),
         audio_out: writer.recording().audio_path(),
         work_dir: dir.clone(),
@@ -500,15 +505,25 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     }
     let outcome = outcome.context("recording")?;
 
-    // 6. Transcribe (a failure here is non-fatal — keep the captured media).
-    let audio = writer.recording().audio_path();
-    let transcript = match transcriber.transcribe(&audio, &dir) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!(
-                "framewatch: transcription failed ({e}); writing package without a transcript."
-            );
-            framewatch::Transcript::default()
+    // 6. Transcribe — only if audio was actually captured. A failure is
+    //    non-fatal: keep the captured media and write a package without a
+    //    transcript.
+    let (transcript, engine, model) = match &outcome.audio {
+        Some(_) => match transcriber.transcribe(&writer.recording().audio_path(), &dir) {
+            Ok(t) => {
+                let (engine, model) = transcriber.engine_meta();
+                (t, engine, model)
+            }
+            Err(e) => {
+                eprintln!(
+                    "framewatch: transcription failed ({e}); writing package without a transcript."
+                );
+                (framewatch::Transcript::default(), "none", None)
+            }
+        },
+        None => {
+            eprintln!("framewatch: no audio was recorded; the package is video-only.");
+            (framewatch::Transcript::default(), "none", None)
         }
     };
 
@@ -516,7 +531,12 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     writer
         .write_transcript(&transcript)
         .context("writing transcript")?;
-    let (engine, model) = transcriber.engine_meta();
+    let audio_meta = outcome.audio.as_ref().map(|a| AudioMeta {
+        path: files::AUDIO.to_string(),
+        sample_rate: a.sample_rate,
+        channels: a.channels,
+        duration_ms: a.duration_ms,
+    });
     let mut manifest = RecordingManifest::new(
         writer.recording(),
         &target,
@@ -530,12 +550,7 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
             height: outcome.height,
             duration_ms: outcome.video_duration_ms,
         },
-        AudioMeta {
-            path: files::AUDIO.to_string(),
-            sample_rate: outcome.audio_sample_rate,
-            channels: outcome.audio_channels,
-            duration_ms: outcome.audio_duration_ms,
-        },
+        audio_meta,
         &transcript,
         engine,
         model,

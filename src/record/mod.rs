@@ -33,6 +33,9 @@ pub struct RecordConfig {
     pub fps: u32,
     /// Microphone device name (substring match), or `None` for the default input.
     pub mic: Option<String>,
+    /// Whether to capture the microphone. If `false` (or no input device is
+    /// available) the recording is video-only.
+    pub capture_audio: bool,
     /// Where the final muxed `recording.mp4` is written.
     pub video_out: PathBuf,
     /// Where the microphone `audio.wav` is written.
@@ -59,12 +62,8 @@ pub struct RecordOutcome {
     pub frames_written: u64,
     /// Video duration in ms.
     pub video_duration_ms: u64,
-    /// Audio sample rate (device native).
-    pub audio_sample_rate: u32,
-    /// Audio channel count in the WAV (mono).
-    pub audio_channels: u16,
-    /// Audio duration in ms.
-    pub audio_duration_ms: u64,
+    /// Audio details, or `None` for a video-only recording (no microphone).
+    pub audio: Option<AudioInfo>,
     /// Video codec (`"h264"`).
     pub codec: String,
     /// Container (`"mp4"`).
@@ -75,6 +74,17 @@ pub struct RecordOutcome {
     pub window_exe: String,
     /// When the recording finished.
     pub ended_at: DateTime<Utc>,
+}
+
+/// Audio details from a finished recording.
+#[derive(Debug, Clone)]
+pub struct AudioInfo {
+    /// WAV sample rate (device native).
+    pub sample_rate: u32,
+    /// WAV channel count (mono).
+    pub channels: u16,
+    /// Audio duration in ms.
+    pub duration_ms: u64,
 }
 
 /// How long to wait for the first frame after the window is resolved, in
@@ -104,8 +114,19 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
         .stop_signal()
         .expect("WGC backend exposes a stop signal");
 
-    // Start the microphone.
-    let audio = audio::AudioRecorder::start(cfg.mic.as_deref(), &cfg.audio_out)?;
+    // Start the microphone. A missing/unusable input device is non-fatal — we
+    // fall back to a video-only recording rather than losing the capture.
+    let audio = if cfg.capture_audio {
+        match audio::AudioRecorder::start(cfg.mic.as_deref(), &cfg.audio_out) {
+            Ok(a) => Some(a),
+            Err(e) => {
+                tracing::warn!("framewatch: microphone unavailable ({e}); recording video only");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Capture thread: publish conformed frames into the mailbox.
     let mailbox: video::FrameMailbox = Arc::new(Mutex::new(None));
@@ -126,7 +147,9 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
             cfg.stop.store(true, Ordering::Relaxed);
             wgc_stop.store(true, Ordering::Relaxed);
             let _ = capture.join();
-            let _ = audio.finish();
+            if let Some(a) = audio {
+                let _ = a.finish();
+            }
             return Err(RecordError::Capture(crate::error::CaptureError::Backend(
                 "the target window produced no frames to record (is it visible and rendering?)"
                     .into(),
@@ -167,17 +190,36 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
     wgc_stop.store(true, Ordering::Relaxed);
     encoder.finish()?;
     let _ = capture.join();
-    let audio_stats = audio.finish()?;
 
-    // Align audio start to video start and mux.
-    let v0_inst = *v0.lock().unwrap();
-    let audio_offset_s = match (v0_inst, audio_stats.first_sample_at) {
-        (Some(v), Some(a)) if a >= v => (a - v).as_secs_f64(),
-        (Some(v), Some(a)) => -(v - a).as_secs_f64(),
-        _ => 0.0,
+    // With audio: finalize the WAV, align it to the video start, and mux.
+    // Without: the encoded video is already the final output.
+    let audio_info = match audio {
+        Some(audio) => {
+            let stats = audio.finish()?;
+            let v0_inst = *v0.lock().unwrap();
+            let audio_offset_s = match (v0_inst, stats.first_sample_at) {
+                (Some(v), Some(a)) if a >= v => (a - v).as_secs_f64(),
+                (Some(v), Some(a)) => -(v - a).as_secs_f64(),
+                _ => 0.0,
+            };
+            ffmpeg::run_mux(&cfg.audio_out, &temp_video, audio_offset_s, &cfg.video_out)?;
+            let _ = std::fs::remove_file(&temp_video);
+            Some(AudioInfo {
+                sample_rate: stats.sample_rate,
+                channels: stats.channels,
+                duration_ms: stats.duration_ms,
+            })
+        }
+        None => {
+            // Move the encoded video to the final path (fall back to copy across
+            // volumes); no mux needed.
+            std::fs::rename(&temp_video, &cfg.video_out).or_else(|_| {
+                std::fs::copy(&temp_video, &cfg.video_out)
+                    .and_then(|_| std::fs::remove_file(&temp_video))
+            })?;
+            None
+        }
     };
-    ffmpeg::run_mux(&cfg.audio_out, &temp_video, audio_offset_s, &cfg.video_out)?;
-    let _ = std::fs::remove_file(&temp_video);
 
     Ok(RecordOutcome {
         width,
@@ -185,9 +227,7 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
         fps: fps as f32,
         frames_written,
         video_duration_ms: frames_written * 1000 / fps as u64,
-        audio_sample_rate: audio_stats.sample_rate,
-        audio_channels: audio_stats.channels,
-        audio_duration_ms: audio_stats.duration_ms,
+        audio: audio_info,
         codec: "h264".into(),
         container: "mp4".into(),
         window_title: window.title,

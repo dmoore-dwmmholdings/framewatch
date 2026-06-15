@@ -163,8 +163,9 @@ pub struct RecordingManifest {
     pub ended_at: Option<DateTime<Utc>>,
     /// Video metadata.
     pub video: VideoMeta,
-    /// Audio metadata.
-    pub audio: AudioMeta,
+    /// Audio metadata (absent for a video-only recording — e.g. no microphone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioMeta>,
     /// Transcript metadata.
     pub transcript: TranscriptMeta,
     /// Relative paths of all artifacts in the package.
@@ -180,7 +181,7 @@ impl RecordingManifest {
         target: &Target,
         selected_via: &str,
         video: VideoMeta,
-        audio: AudioMeta,
+        audio: Option<AudioMeta>,
         transcript: &Transcript,
         engine: &str,
         model: Option<String>,
@@ -194,6 +195,17 @@ impl RecordingManifest {
             segment_count: transcript.segments.len(),
             language: transcript.language.clone(),
         };
+        let mut artifacts = vec![files::VIDEO.to_string()];
+        if audio.is_some() {
+            artifacts.push(files::AUDIO.to_string());
+        }
+        artifacts.extend([
+            files::TRANSCRIPT_JSON.to_string(),
+            files::TRANSCRIPT_SRT.to_string(),
+            files::MANIFEST.to_string(),
+            files::PROMPT.to_string(),
+            files::README.to_string(),
+        ]);
         Self {
             session_id: recording.id.clone(),
             tool: format!("framewatch {}", env!("CARGO_PKG_VERSION")),
@@ -204,15 +216,7 @@ impl RecordingManifest {
             video,
             audio,
             transcript: transcript_meta,
-            artifacts: vec![
-                files::VIDEO.to_string(),
-                files::AUDIO.to_string(),
-                files::TRANSCRIPT_JSON.to_string(),
-                files::TRANSCRIPT_SRT.to_string(),
-                files::MANIFEST.to_string(),
-                files::PROMPT.to_string(),
-                files::README.to_string(),
-            ],
+            artifacts,
         }
     }
 }
@@ -319,10 +323,14 @@ The recording is in this package. Read the narration below, then carry out what 
 asked. The video lets you see exactly what they were pointing at or referring to.\n\n"
     ));
 
+    let audio_note = if manifest.audio.is_some() {
+        " The narration audio is muxed into the video and also available standalone as `audio.wav`."
+    } else {
+        " (This recording has no audio track.)"
+    };
     s.push_str("## What you have\n");
     s.push_str(&format!(
-        "- `recording.mp4` — the screen capture of {window_label}, {}x{} at {} fps, {dur} long. \
-The narration audio is muxed into the video and also available standalone as `audio.wav`.\n",
+        "- `recording.mp4` — the screen capture of {window_label}, {}x{} at {} fps, {dur} long.{audio_note}\n",
         manifest.video.width,
         manifest.video.height,
         fmt_fps(manifest.video.fps),
@@ -415,12 +423,12 @@ mod tests {
                 height: 1080,
                 duration_ms: 83_000,
             },
-            AudioMeta {
+            Some(AudioMeta {
                 path: files::AUDIO.into(),
                 sample_rate: 48_000,
                 channels: 1,
                 duration_ms: 83_000,
-            },
+            }),
             transcript,
             "command",
             Some("whisper-cli".into()),

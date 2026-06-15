@@ -71,12 +71,12 @@ fn transcribe_cmd_writes_full_package() {
             height: 1080,
             duration_ms: 4800,
         },
-        AudioMeta {
+        Some(AudioMeta {
             path: files::AUDIO.into(),
             sample_rate: 48_000,
             channels: 1,
             duration_ms: 4800,
-        },
+        }),
         &transcript,
         engine,
         model,
@@ -141,12 +141,12 @@ fn no_transcribe_writes_empty_package() {
             height: 720,
             duration_ms: 0,
         },
-        AudioMeta {
+        Some(AudioMeta {
             path: files::AUDIO.into(),
             sample_rate: 48_000,
             channels: 1,
             duration_ms: 0,
-        },
+        }),
         &transcript,
         "none",
         None,
@@ -158,4 +158,46 @@ fn no_transcribe_writes_empty_package() {
     assert!(prompt.contains("no narration transcript"));
     let json = std::fs::read_to_string(dir.join(files::TRANSCRIPT_JSON)).unwrap();
     assert!(json.contains("\"segments\": []"));
+}
+
+#[test]
+fn video_only_package_omits_audio() {
+    let tmp = tempfile::tempdir().unwrap();
+    let writer = PackageWriter::new(tmp.path(), Utc::now(), "Game.exe").unwrap();
+    let dir = writer.recording().dir.clone();
+    // Only the video exists — no audio.wav.
+    std::fs::write(dir.join(files::VIDEO), b"\x00\x00\x00\x18ftypmp42").unwrap();
+
+    let transcript = framewatch::Transcript::default();
+    writer.write_transcript(&transcript).unwrap();
+    let manifest = RecordingManifest::new(
+        writer.recording(),
+        &Target::ByExe("Game.exe".into()),
+        "cli",
+        VideoMeta {
+            path: files::VIDEO.into(),
+            container: "mp4".into(),
+            codec: "h264".into(),
+            fps: 30.0,
+            width: 1280,
+            height: 720,
+            duration_ms: 5000,
+        },
+        None, // no microphone captured
+        &transcript,
+        "none",
+        None,
+        Utc::now(),
+    );
+    writer.finalize(&manifest, &transcript).unwrap();
+
+    // audio.wav is neither listed nor required.
+    assert!(!manifest.artifacts.iter().any(|a| a == files::AUDIO));
+    let manifest_txt = std::fs::read_to_string(dir.join(files::MANIFEST)).unwrap();
+    assert!(!manifest_txt.contains("\"audio\""));
+    let parsed: RecordingManifest = serde_json::from_str(&manifest_txt).unwrap();
+    assert!(parsed.audio.is_none());
+    // The prompt tells the model there is no audio track.
+    let prompt = std::fs::read_to_string(dir.join(files::PROMPT)).unwrap();
+    assert!(prompt.contains("no audio track"));
 }
