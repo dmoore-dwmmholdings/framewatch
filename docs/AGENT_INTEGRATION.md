@@ -444,8 +444,10 @@ dist\framewatch.exe record --pid 41234 --no-transcribe
 
 Selectors (`--title/--exe/--hwnd/--pid`), `--launch`, `--out`, `--roi`, `--wait`,
 and `--duration` behave exactly as in `watch`/`shot`. Extra options: `--fps`
-(default 30), `--mic <name>` (default input device), and the transcription
-choices above. Stop with **Ctrl+C** (the mp4 is finalized cleanly) or `--duration`.
+(default 30), `--mic <name>` (default input device), `--no-audio` (record
+video-only), and the transcription choices above. Stop with **Ctrl+C** (the mp4
+is finalized cleanly) or `--duration`. If no microphone is available, recording
+falls back to video-only automatically.
 
 ### 6.1 Package layout
 
@@ -500,6 +502,7 @@ choices above. Stop with **Ctrl+C** (the mp4 is finalized cleanly) or `--duratio
   "started_at": "...Z", "ended_at": "...Z",
   "video": { "path": "recording.mp4", "container": "mp4", "codec": "h264",
              "fps": 30.0, "width": 1920, "height": 1080, "duration_ms": 64200 },
+  // "audio" is omitted entirely for a video-only recording (no microphone):
   "audio": { "path": "audio.wav", "sample_rate": 48000, "channels": 1, "duration_ms": 64300 },
   "transcript": { "path": "transcript.json", "srt": "transcript.srt",
                   "engine": "whisper.cpp",     // "whisper.cpp" | "command" | "none"
@@ -516,6 +519,14 @@ choices above. Stop with **Ctrl+C** (the mp4 is finalized cleanly) or `--duratio
 | Bundled whisper.cpp | `--whisper-model <ggml/gguf .bin>` | a build with `--features whisper`; a model file you supply |
 | External command | `--transcribe-cmd "<cmd>"` | any transcriber on PATH |
 | None | `--no-transcribe` | — (empty transcript; video + audio only) |
+
+> **Windows:** prefer `--transcribe-cmd` with whisper.cpp's prebuilt `whisper-cli`
+> (no compilation). The bundled `--features whisper` engine builds on Linux/macOS
+> but is currently blocked on Windows by an upstream `whisper-rs` build bug.
+
+There is no microphone, or you don't want one? Recording is video-only then: it
+warns and writes a package with no `audio.wav` and an empty transcript (and the
+manifest omits the `audio` block). `--no-audio` opts out of mic capture explicitly.
 
 The `--transcribe-cmd` template is whitespace-split (quotes group args). `{audio}`
 is replaced with the WAV path and `{output}` with a framewatch-chosen output base

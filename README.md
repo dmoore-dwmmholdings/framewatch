@@ -111,6 +111,18 @@ model can correlate "click *this*" with the exact on-screen moment — ingesting
 `ffmpeg -ss <seconds> -i recording.mp4 -frames:v 1 frame.png`. See the
 [recording-package contract](docs/AGENT_INTEGRATION.md#6-recording-packages-record).
 
+> **No microphone?** Recording degrades gracefully — it warns and produces a
+> **video-only** package (no transcript). Pass `--no-audio` to opt out of mic
+> capture explicitly.
+>
+> **Transcription on Windows.** Use `--transcribe-cmd` with whisper.cpp's
+> prebuilt `whisper-cli` (or `faster-whisper` / `openai-whisper`) — **no
+> compilation needed**. The bundled `--features whisper` engine builds on
+> **Linux/macOS**; on Windows it's currently blocked by an upstream
+> [`whisper-rs`](https://crates.io/crates/whisper-rs) build bug (it passes the
+> MSVC-only `/utf-8` flag to GNU toolchains, and its log-level enum mismatches
+> bindgen's output under MSVC), so prefer `--transcribe-cmd` there.
+
 ## The agent-consumption contract
 
 A session directory (`./.framewatch/<session_id>/`) contains:

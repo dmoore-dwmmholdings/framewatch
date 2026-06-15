@@ -63,3 +63,19 @@ jobs:
 
       - name: Test (gui + wgc + record)
         run: cargo test --features "gui wgc record"
+
+  whisper:
+    name: Whisper engine (Linux build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+
+      # Bundled whisper.cpp builds cleanly on Linux (it only misbehaves on the
+      # Windows toolchains today — see CHANGELOG). This verifies the `whisper`
+      # transcription arm compiles. ubuntu-latest ships cmake + clang/libclang.
+      - name: Build (whisper)
+        run: cargo build --features whisper

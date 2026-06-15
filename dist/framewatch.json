@@ -88,9 +88,10 @@
         "--duration": "auto-stop after N seconds (otherwise record until Ctrl+C)",
         "--fps": "target video frames per second (default 30, clamped 1..=60)",
         "--mic": "microphone device name substring (default: system default input)",
+        "--no-audio": "record video only (no microphone / transcription); also the automatic fallback when no input device is available",
         "--roi": "crop the recorded region to a pixel rect X,Y,W,H",
         "--wait": "wait up to N seconds for the target window to appear",
-        "--whisper-model": "transcribe with a bundled whisper model (.bin); needs the `whisper` feature",
+        "--whisper-model": "transcribe with a bundled whisper model (.bin); needs the `whisper` feature (builds on Linux/macOS; on Windows use --transcribe-cmd)",
         "--transcribe-cmd": "transcribe by shelling out; {audio}/{output} substituted; emit framewatch JSON or SRT",
         "--no-transcribe": "record video + audio only (empty transcript)",
         "--language": "language hint for whisper (e.g. en)"

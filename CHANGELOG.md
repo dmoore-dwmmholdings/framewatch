@@ -27,12 +27,20 @@ changes bump the minor version).
   - `README_FOR_AGENT.md` — how to consume the package.
 
   Selectors and `--launch` / `--out` / `--roi` / `--wait` / `--duration` mirror
-  `watch`/`shot`; plus `--fps`, `--mic <device>`.
+  `watch`/`shot`; plus `--fps`, `--mic <device>`, `--no-audio`.
+- **Graceful video-only fallback.** If no microphone is available (or with
+  `--no-audio`), `record` warns and produces a valid video-only package instead
+  of failing — the manifest omits the `audio` block and the transcript is empty.
 - **Local transcription, two ways.** Bundled **whisper.cpp** via the `whisper-rs`
   crate behind a new `whisper` feature (`--whisper-model <ggml.bin>`), or a
   dependency-free `--transcribe-cmd "<cmd>"` escape hatch that shells out to any
   transcriber (`{audio}` / `{output}` placeholders; reads back framewatch
   transcript JSON or SRT). `--no-transcribe` records video + audio only.
+  - The bundled `whisper` feature builds on **Linux/macOS**; on **Windows** it is
+    currently blocked by an upstream `whisper-rs`/`whisper-rs-sys` build bug (the
+    MSVC-only `/utf-8` flag is passed to GNU toolchains, and its log-level enum
+    repr mismatches `bindgen`'s output under MSVC). Use `--transcribe-cmd` with
+    whisper.cpp's prebuilt `whisper-cli` on Windows — no compilation required.
 - New public API: `framewatch::{record, RecordConfig, RecordOutcome}` (the
   `record` feature), `Transcript` / `TranscriptSegment` / `Transcriber`,
   `Recording` / `RecordingManifest` / `PackageWriter`, and `tokenize`.
