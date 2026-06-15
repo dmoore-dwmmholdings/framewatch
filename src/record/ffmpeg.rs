@@ -7,8 +7,21 @@
 
 use crate::error::RecordError;
 use std::io::Write;
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
+
+/// Spawn ffmpeg in its own process group so a console Ctrl+C (which Windows
+/// delivers to the whole group) doesn't kill it mid-write. We stop it cleanly by
+/// closing stdin instead, which lets it finalize the mp4 (moov atom).
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+/// Build an `ffmpeg` command that won't receive the console's Ctrl+C.
+fn ffmpeg_command() -> Command {
+    let mut cmd = Command::new("ffmpeg");
+    cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    cmd
+}
 
 /// Build the args for the video-encode pass: raw BGRA frames on stdin (constant
 /// `fps`, locked `width`x`height`) → H.264/mp4 at `out`.
@@ -112,7 +125,7 @@ impl VideoEncoder {
         out: &Path,
     ) -> Result<Self, RecordError> {
         let out = out.to_string_lossy().into_owned();
-        let mut child = Command::new("ffmpeg")
+        let mut child = ffmpeg_command()
             .args(encode_args(width, height, fps, &out))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -154,7 +167,7 @@ pub(crate) fn run_mux(
     audio_offset_s: f64,
     out: &Path,
 ) -> Result<(), RecordError> {
-    let status = Command::new("ffmpeg")
+    let status = ffmpeg_command()
         .args(mux_args(
             &audio.to_string_lossy(),
             &video.to_string_lossy(),
