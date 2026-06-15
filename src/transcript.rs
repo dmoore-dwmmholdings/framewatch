@@ -347,12 +347,9 @@ fn transcribe_whisper(
     let samples_f32: Vec<f32> = samples_i16.iter().map(|&s| s as f32 / 32768.0).collect();
     let mono16k = crate::audioutil::to_mono_16k(&samples_f32, spec.channels, spec.sample_rate);
 
-    // 3. Run whisper.
-    let ctx = WhisperContext::new_with_params(
-        &model_path.to_string_lossy(),
-        WhisperContextParameters::default(),
-    )
-    .map_err(|e| TranscribeError::Whisper(e.to_string()))?;
+    // 3. Run whisper. `new_with_params` takes `impl AsRef<Path>`.
+    let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
+        .map_err(|e| TranscribeError::Whisper(e.to_string()))?;
     let mut state = ctx
         .create_state()
         .map_err(|e| TranscribeError::Whisper(e.to_string()))?;
