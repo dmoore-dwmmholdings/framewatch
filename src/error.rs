@@ -72,10 +72,6 @@ pub enum TranscribeError {
     /// Audio decode / format error (e.g. reading the WAV).
     #[error("audio error: {0}")]
     Audio(String),
-
-    /// A bundled whisper.cpp error (only meaningful with the `whisper` feature).
-    #[error("whisper error: {0}")]
-    Whisper(String),
 }
 
 /// Errors produced by the `record` A/V capture runtime.

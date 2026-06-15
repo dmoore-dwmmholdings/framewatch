@@ -27,8 +27,8 @@
   "transcript": {
     "path": "transcript.json",
     "srt": "transcript.srt",
-    "engine": "whisper.cpp",
-    "model": "ggml-base.en.bin",
+    "engine": "command",
+    "model": "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}",
     "segment_count": 4,
     "language": "en"
   },

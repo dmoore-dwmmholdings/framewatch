@@ -412,8 +412,7 @@ dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --tim
 dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
 
 # record a window to video while narrating, then bundle an LLM package (see §6):
-dist\framewatch.exe record --title "My Game" --duration 60 --whisper-model ggml-base.en.bin
-dist\framewatch.exe record --title "My Game" --transcribe-cmd "whisper-cli -m m.bin -f {audio} -osrt -of {output}"
+dist\framewatch.exe record --title "My Game" --duration 60 --transcribe-cmd "whisper-cli -m m.bin -f {audio} -osrt -of {output}"
 
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"
@@ -427,16 +426,13 @@ dist\framewatch.exe record --title "My Game" --transcribe-cmd "whisper-cli -m m.
 `record` is the opposite of `watch`: instead of a deduped story of "money frames",
 it **continuously records** one window to video while the user narrates into the
 microphone, then transcribes the narration locally and writes a package an LLM
-can act on. Build with `--features "wgc record"` (and `whisper` for bundled
-transcription); **`ffmpeg` must be on PATH**.
+can act on. Build with `--features "wgc record"`; **`ffmpeg` must be on PATH**.
 
 ```sh
-# Record until Ctrl+C (or --duration); transcribe with bundled whisper:
-dist\framewatch.exe record --title "My Game" --whisper-model ggml-base.en.bin --out ./.framewatch
-
-# Or shell out to any transcriber ({audio}/{output} are substituted):
+# Record until Ctrl+C (or --duration), transcribing with a local transcriber
+# ({audio}/{output} are substituted):
 dist\framewatch.exe record --title "My Game" --duration 60 \
-  --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}"
+  --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}" --out ./.framewatch
 
 # Or skip transcription (video + audio only):
 dist\framewatch.exe record --pid 41234 --no-transcribe
@@ -505,8 +501,8 @@ falls back to video-only automatically.
   // "audio" is omitted entirely for a video-only recording (no microphone):
   "audio": { "path": "audio.wav", "sample_rate": 48000, "channels": 1, "duration_ms": 64300 },
   "transcript": { "path": "transcript.json", "srt": "transcript.srt",
-                  "engine": "whisper.cpp",     // "whisper.cpp" | "command" | "none"
-                  "model": "ggml-base.en.bin", "segment_count": 2, "language": "en" },
+                  "engine": "command",         // "command" | "none"
+                  "model": "whisper-cli -m … -f {audio} …", "segment_count": 2, "language": "en" },
   "artifacts": ["recording.mp4","audio.wav","transcript.json","transcript.srt",
                 "recording.json","PROMPT.md","README_FOR_AGENT.md"]
 }
@@ -516,13 +512,12 @@ falls back to video-only automatically.
 
 | Choice | Flag | Needs |
 |---|---|---|
-| Bundled whisper.cpp | `--whisper-model <ggml/gguf .bin>` | a build with `--features whisper`; a model file you supply |
-| External command | `--transcribe-cmd "<cmd>"` | any transcriber on PATH |
+| External command | `--transcribe-cmd "<cmd>"` | any local transcriber on PATH (e.g. whisper.cpp's prebuilt `whisper-cli`) |
 | None | `--no-transcribe` | — (empty transcript; video + audio only) |
 
-> **Windows:** prefer `--transcribe-cmd` with whisper.cpp's prebuilt `whisper-cli`
-> (no compilation). The bundled `--features whisper` engine builds on Linux/macOS
-> but is currently blocked on Windows by an upstream `whisper-rs` build bug.
+framewatch bundles no speech-to-text engine — transcription is always done by
+shelling out via `--transcribe-cmd`, so there's nothing to compile and any
+transcriber works.
 
 There is no microphone, or you don't want one? Recording is video-only then: it
 warns and writes a package with no `audio.wav` and an empty transcript (and the

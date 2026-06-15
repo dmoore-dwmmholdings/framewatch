@@ -47,36 +47,6 @@ impl Transcript {
         self.segments.is_empty()
     }
 
-    /// Build a transcript from `(t0, t1, text)` tuples whose timestamps are in
-    /// **centiseconds** (whisper.cpp's unit), converting to ms (`* 10`).
-    ///
-    /// Negative timestamps are clamped to `0`, blank segments are dropped, and
-    /// `duration_ms` is set to the maximum `end_ms`.
-    pub fn from_centisecond_segments(
-        items: impl IntoIterator<Item = (i64, i64, String)>,
-        language: Option<String>,
-    ) -> Self {
-        let cs_to_ms = |cs: i64| -> u64 { (cs.max(0) as u64).saturating_mul(10) };
-        let mut segments = Vec::new();
-        for (t0, t1, text) in items {
-            let text = text.trim().to_string();
-            if text.is_empty() {
-                continue;
-            }
-            segments.push(TranscriptSegment {
-                start_ms: cs_to_ms(t0),
-                end_ms: cs_to_ms(t1),
-                text,
-            });
-        }
-        let duration_ms = segments.iter().map(|s| s.end_ms).max().unwrap_or(0);
-        Self {
-            language,
-            duration_ms,
-            segments,
-        }
-    }
-
     /// Render the transcript as SubRip (`.srt`) subtitles.
     pub fn to_srt(&self) -> String {
         let mut out = String::new();
@@ -171,18 +141,12 @@ fn parse_srt_timestamp(s: &str) -> Option<u64> {
 }
 
 /// How a recording's voice narration is turned into a [`Transcript`].
+///
+/// framewatch does not bundle a speech-to-text engine; local transcription is
+/// done by shelling out to one you have ([`Command`](Transcriber::Command)),
+/// e.g. whisper.cpp's prebuilt `whisper-cli`.
 #[derive(Debug, Clone)]
 pub enum Transcriber {
-    /// Bundled whisper.cpp via the `whisper-rs` crate (requires the `whisper`
-    /// feature). The model file is user-supplied — never auto-downloaded.
-    Whisper {
-        /// Path to a GGML/GGUF whisper model (`.bin`).
-        model_path: PathBuf,
-        /// Force a language (e.g. `"en"`), or `None` to auto-detect.
-        language: Option<String>,
-        /// Worker threads (`0` selects a sensible default).
-        n_threads: u32,
-    },
     /// Shell out to an external transcriber, run over `audio.wav`.
     ///
     /// The template is tokenized (quotes group args); `{audio}` is replaced with
@@ -194,7 +158,7 @@ pub enum Transcriber {
         /// The command template.
         template: String,
     },
-    /// Produce an empty transcript (`--no-transcribe`).
+    /// Produce an empty transcript (`--no-transcribe`, or no audio).
     Disabled,
 }
 
@@ -202,12 +166,6 @@ impl Transcriber {
     /// A `(engine, model)` label pair recorded in the package manifest.
     pub fn engine_meta(&self) -> (&'static str, Option<String>) {
         match self {
-            Transcriber::Whisper { model_path, .. } => (
-                "whisper.cpp",
-                model_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned()),
-            ),
             Transcriber::Command { template } => ("command", Some(template.clone())),
             Transcriber::Disabled => ("none", None),
         }
@@ -222,11 +180,6 @@ impl Transcriber {
         match self {
             Transcriber::Disabled => Ok(Transcript::default()),
             Transcriber::Command { template } => transcribe_command(template, audio_wav, work_dir),
-            Transcriber::Whisper {
-                model_path,
-                language,
-                n_threads,
-            } => transcribe_whisper(model_path, language.as_deref(), *n_threads, audio_wav),
         }
     }
 }
@@ -325,85 +278,6 @@ fn parse_transcript_text(raw: &str, format: Option<Blob>) -> Result<Transcript, 
     }
 }
 
-#[cfg(feature = "whisper")]
-fn transcribe_whisper(
-    model_path: &Path,
-    language: Option<&str>,
-    n_threads: u32,
-    audio_wav: &Path,
-) -> Result<Transcript, TranscribeError> {
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
-
-    // 1. Read the i16 WAV the recorder wrote.
-    let mut reader =
-        hound::WavReader::open(audio_wav).map_err(|e| TranscribeError::Audio(e.to_string()))?;
-    let spec = reader.spec();
-    let samples_i16: Vec<i16> = reader
-        .samples::<i16>()
-        .collect::<Result<_, _>>()
-        .map_err(|e| TranscribeError::Audio(e.to_string()))?;
-
-    // 2. i16 -> f32, downmix to mono, resample to 16 kHz (pure helpers).
-    let samples_f32: Vec<f32> = samples_i16.iter().map(|&s| s as f32 / 32768.0).collect();
-    let mono16k = crate::audioutil::to_mono_16k(&samples_f32, spec.channels, spec.sample_rate);
-
-    // 3. Run whisper. `new_with_params` takes `impl AsRef<Path>`.
-    let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
-        .map_err(|e| TranscribeError::Whisper(e.to_string()))?;
-    let mut state = ctx
-        .create_state()
-        .map_err(|e| TranscribeError::Whisper(e.to_string()))?;
-
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    if let Some(lang) = language {
-        params.set_language(Some(lang));
-    }
-    if n_threads > 0 {
-        params.set_n_threads(n_threads as i32);
-    }
-    params.set_translate(false);
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-
-    state
-        .full(params, &mono16k)
-        .map_err(|e| TranscribeError::Whisper(e.to_string()))?;
-
-    // 4. Read back segments. whisper timestamps are centiseconds; the pure
-    //    `from_centisecond_segments` does the `* 10` conversion.
-    let n = state.full_n_segments();
-    let mut raw = Vec::new();
-    for i in 0..n {
-        if let Some(seg) = state.get_segment(i) {
-            let text = seg
-                .to_str_lossy()
-                .map_err(|e| TranscribeError::Whisper(e.to_string()))?
-                .into_owned();
-            raw.push((seg.start_timestamp(), seg.end_timestamp(), text));
-        }
-    }
-    Ok(Transcript::from_centisecond_segments(
-        raw,
-        language.map(str::to_string),
-    ))
-}
-
-#[cfg(not(feature = "whisper"))]
-fn transcribe_whisper(
-    _model_path: &Path,
-    _language: Option<&str>,
-    _n_threads: u32,
-    _audio_wav: &Path,
-) -> Result<Transcript, TranscribeError> {
-    Err(TranscribeError::Whisper(
-        "this build has no bundled whisper engine — rebuild with `--features whisper`, \
-         or use --transcribe-cmd"
-            .into(),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,20 +288,6 @@ mod tests {
         assert_eq!(format_srt_timestamp(1_250), "00:00:01,250");
         assert_eq!(format_srt_timestamp(61_000), "00:01:01,000");
         assert_eq!(format_srt_timestamp(3_661_001), "01:01:01,001");
-    }
-
-    #[test]
-    fn centisecond_conversion() {
-        let t = Transcript::from_centisecond_segments(
-            [(125, 480, "hi".to_string()), (0, 10, "  ".to_string())],
-            Some("en".into()),
-        );
-        // blank segment dropped; centiseconds * 10 = ms.
-        assert_eq!(t.segments.len(), 1);
-        assert_eq!(t.segments[0].start_ms, 1250);
-        assert_eq!(t.segments[0].end_ms, 4800);
-        assert_eq!(t.duration_ms, 4800);
-        assert_eq!(t.language.as_deref(), Some("en"));
     }
 
     #[test]

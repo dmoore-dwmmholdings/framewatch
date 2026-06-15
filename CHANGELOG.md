@@ -31,16 +31,13 @@ changes bump the minor version).
 - **Graceful video-only fallback.** If no microphone is available (or with
   `--no-audio`), `record` warns and produces a valid video-only package instead
   of failing — the manifest omits the `audio` block and the transcript is empty.
-- **Local transcription, two ways.** Bundled **whisper.cpp** via the `whisper-rs`
-  crate behind a new `whisper` feature (`--whisper-model <ggml.bin>`), or a
-  dependency-free `--transcribe-cmd "<cmd>"` escape hatch that shells out to any
-  transcriber (`{audio}` / `{output}` placeholders; reads back framewatch
-  transcript JSON or SRT). `--no-transcribe` records video + audio only.
-  - The bundled `whisper` feature builds on **Linux/macOS**; on **Windows** it is
-    currently blocked by an upstream `whisper-rs`/`whisper-rs-sys` build bug (the
-    MSVC-only `/utf-8` flag is passed to GNU toolchains, and its log-level enum
-    repr mismatches `bindgen`'s output under MSVC). Use `--transcribe-cmd` with
-    whisper.cpp's prebuilt `whisper-cli` on Windows — no compilation required.
+- **Local transcription via `--transcribe-cmd`.** framewatch bundles no
+  speech-to-text engine; it shells out to a local transcriber you have (e.g.
+  whisper.cpp's prebuilt `whisper-cli`, `faster-whisper`, `openai-whisper`).
+  `{audio}` / `{output}` are substituted; the command emits framewatch transcript
+  JSON or SubRip (SRT), which framewatch reads back. `--no-transcribe` records
+  video + audio only. This keeps the crate light, publishable, and dependency-free
+  for transcription.
 - New public API: `framewatch::{record, RecordConfig, RecordOutcome}` (the
   `record` feature), `Transcript` / `TranscriptSegment` / `Transcriber`,
   `Recording` / `RecordingManifest` / `PackageWriter`, and `tokenize`.

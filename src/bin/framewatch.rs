@@ -178,20 +178,14 @@ struct RecordArgs {
     /// Don't capture the microphone — record video only (also skips transcription).
     #[arg(long)]
     no_audio: bool,
-    /// Transcribe locally with a bundled whisper model (GGML/GGUF `.bin`).
-    /// Requires a build with `--features whisper`.
-    #[arg(long, value_name = "PATH")]
-    whisper_model: Option<PathBuf>,
-    /// Transcribe by shelling out to a command. `{audio}` and `{output}` are
-    /// substituted; the command must emit framewatch transcript JSON or SRT.
-    #[arg(long, value_name = "CMD", conflicts_with = "whisper_model")]
+    /// Transcribe the narration by shelling out to a local transcriber (e.g.
+    /// whisper.cpp's `whisper-cli`). `{audio}` and `{output}` are substituted;
+    /// the command must emit framewatch transcript JSON or SRT.
+    #[arg(long, value_name = "CMD")]
     transcribe_cmd: Option<String>,
     /// Skip transcription (record video + audio only).
-    #[arg(long, conflicts_with_all = ["whisper_model", "transcribe_cmd"])]
+    #[arg(long, conflicts_with = "transcribe_cmd")]
     no_transcribe: bool,
-    /// Language hint for whisper transcription (e.g. "en"); default auto-detect.
-    #[arg(long)]
-    language: Option<String>,
     /// Load a base config from this TOML file (for `out`/`target`/`roi` defaults).
     #[arg(long)]
     config: Option<PathBuf>,
@@ -434,18 +428,16 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
         anyhow::bail!("provide a selector (--title/--exe/--hwnd/--pid) or --launch");
     }
 
-    // 2. Choose the transcriber up front (fail fast on a misconfigured build).
-    //    `--no-audio` implies no transcription (there's nothing to transcribe).
+    // 2. Choose the transcriber up front. `--no-audio` implies no transcription
+    //    (there's nothing to transcribe).
     let transcriber = if args.no_transcribe || args.no_audio {
         Transcriber::Disabled
-    } else if let Some(model) = args.whisper_model.clone() {
-        make_whisper(model, args.language.clone())?
     } else if let Some(cmd) = args.transcribe_cmd.clone() {
         Transcriber::Command { template: cmd }
     } else {
         eprintln!(
             "framewatch: no transcription requested — recording video + audio only \
-             (use --whisper-model or --transcribe-cmd; --no-transcribe silences this)."
+             (pass --transcribe-cmd \"<transcriber>\"; --no-transcribe silences this)."
         );
         Transcriber::Disabled
     };
@@ -577,29 +569,11 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "record", feature = "whisper"))]
-fn make_whisper(model: PathBuf, language: Option<String>) -> Result<framewatch::Transcriber> {
-    Ok(framewatch::Transcriber::Whisper {
-        model_path: model,
-        language,
-        n_threads: 0,
-    })
-}
-
-#[cfg(all(feature = "record", not(feature = "whisper")))]
-fn make_whisper(_model: PathBuf, _language: Option<String>) -> Result<framewatch::Transcriber> {
-    anyhow::bail!(
-        "--whisper-model requires a build with `--features whisper` (it bundles whisper.cpp). \
-         Alternatively use --transcribe-cmd, or --no-transcribe."
-    )
-}
-
 #[cfg(not(feature = "record"))]
 fn cmd_record(_args: RecordArgs) -> Result<()> {
     anyhow::bail!(
         "this build has no recording support. Reinstall with \
-         `cargo install framewatch --features \"cli wgc record\"` (Windows; needs ffmpeg on PATH). \
-         Add `whisper` for bundled local transcription."
+         `cargo install framewatch --features \"cli wgc record\"` (Windows; needs ffmpeg on PATH)."
     )
 }
 

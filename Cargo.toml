@@ -28,12 +28,9 @@ llm = [] # reserved: out-of-band vision-caption sink
 # (frames piped to an `ffmpeg` subprocess) + the microphone (`cpal` -> WAV via
 # `hound`), producing an LLM-ready package. Implies `wgc` (the live capture
 # backend); the video path is additionally `#[cfg(windows)]`. Needs `ffmpeg` on
-# PATH at runtime.
+# PATH at runtime. Transcription is done via `--transcribe-cmd` (any local
+# transcriber, e.g. whisper.cpp's prebuilt `whisper-cli`).
 record = ["dep:cpal", "dep:hound", "dep:ctrlc", "wgc"]
-# Bundled local transcription via whisper.cpp (the `whisper-rs` crate). Compiles
-# whisper.cpp, so it needs cmake + a C/C++ toolchain (like `wgc` needs MSVC).
-# `record` still works without it through `--transcribe-cmd`.
-whisper = ["dep:whisper-rs", "dep:hound"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -62,8 +59,6 @@ webp = { version = "0.3", optional = true }
 cpal = { version = "0.17", optional = true }
 hound = { version = "3.5", optional = true }
 ctrlc = { version = "3", optional = true }
-# Local transcription via bundled whisper.cpp (optional; `whisper`).
-whisper-rs = { version = "0.16", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = { version = "2", optional = true }

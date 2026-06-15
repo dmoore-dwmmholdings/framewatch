@@ -91,13 +91,11 @@
         "--no-audio": "record video only (no microphone / transcription); also the automatic fallback when no input device is available",
         "--roi": "crop the recorded region to a pixel rect X,Y,W,H",
         "--wait": "wait up to N seconds for the target window to appear",
-        "--whisper-model": "transcribe with a bundled whisper model (.bin); needs the `whisper` feature (builds on Linux/macOS; on Windows use --transcribe-cmd)",
-        "--transcribe-cmd": "transcribe by shelling out; {audio}/{output} substituted; emit framewatch JSON or SRT",
-        "--no-transcribe": "record video + audio only (empty transcript)",
-        "--language": "language hint for whisper (e.g. en)"
+        "--transcribe-cmd": "transcribe by shelling out to a local transcriber; {audio}/{output} substituted; command emits framewatch JSON or SRT",
+        "--no-transcribe": "record video + audio only (empty transcript)"
       },
       "stdout": "first line: the package directory; last line: the PROMPT.md path",
-      "example": "framewatch.exe record --title \"My Game\" --duration 60 --whisper-model ggml-base.en.bin"
+      "example": "framewatch.exe record --title \"My Game\" --duration 60 --transcribe-cmd \"whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}\""
     },
     {
       "name": "gui",

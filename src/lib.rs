@@ -59,9 +59,8 @@ pub mod transcript;
 
 mod util;
 
-/// Pure audio helpers (downmix / resample), shared by the recording runtime and
-/// the bundled whisper transcriber.
-#[cfg(any(feature = "record", feature = "whisper"))]
+/// Pure audio helpers (downmix) for the recording runtime.
+#[cfg(feature = "record")]
 mod audioutil;
 
 #[cfg(feature = "gui")]

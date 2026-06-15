@@ -87,11 +87,10 @@ microphone, then transcribes the narration locally and bundles everything an LLM
 needs to act on it:
 
 ```sh
-# Record a window for 60s (or stop early with Ctrl+C) while you talk:
+# Record a window for 60s (or stop early with Ctrl+C) while you talk, and
+# transcribe the narration with any local transcriber via --transcribe-cmd:
 framewatch record --title "My Game" --duration 60 \
     --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}"
-# Or with bundled whisper (build --features whisper):
-framewatch record --title "My Game" --whisper-model ggml-base.en.bin
 ```
 
 It writes a package directory:
@@ -111,17 +110,16 @@ model can correlate "click *this*" with the exact on-screen moment — ingesting
 `ffmpeg -ss <seconds> -i recording.mp4 -frames:v 1 frame.png`. See the
 [recording-package contract](docs/AGENT_INTEGRATION.md#6-recording-packages-record).
 
+> **Transcription** is done by `--transcribe-cmd`: framewatch shells out to a
+> local transcriber you already have — whisper.cpp's prebuilt `whisper-cli`,
+> `faster-whisper`, `openai-whisper`, etc. `{audio}` and `{output}` are
+> substituted; the command writes framewatch transcript JSON or SRT. framewatch
+> bundles no speech-to-text engine, so it stays light and there's nothing to
+> compile.
+>
 > **No microphone?** Recording degrades gracefully — it warns and produces a
 > **video-only** package (no transcript). Pass `--no-audio` to opt out of mic
 > capture explicitly.
->
-> **Transcription on Windows.** Use `--transcribe-cmd` with whisper.cpp's
-> prebuilt `whisper-cli` (or `faster-whisper` / `openai-whisper`) — **no
-> compilation needed**. The bundled `--features whisper` engine builds on
-> **Linux/macOS**; on Windows it's currently blocked by an upstream
-> [`whisper-rs`](https://crates.io/crates/whisper-rs) build bug (it passes the
-> MSVC-only `/utf-8` flag to GNU toolchains, and its log-level enum mismatches
-> bindgen's output under MSVC), so prefer `--transcribe-cmd` there.
 
 ## The agent-consumption contract
 
@@ -192,7 +190,6 @@ detection pipeline is unit-tested without a GPU, screen, or Windows.
 | `wgc` | | Windows Graphics Capture backend + window enumeration |
 | `gui` | | eframe/egui window picker & ROI editor |
 | `record` | | `record` subcommand: window video (via `ffmpeg`) + mic (`cpal`) → LLM package |
-| `whisper` | | bundled local transcription (whisper.cpp via `whisper-rs`) |
 | `jpeg` / `webp` | | extra image encoders |
 | `llm` | | reserved: out-of-band vision-caption sink |
 
