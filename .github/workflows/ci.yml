@@ -63,3 +63,21 @@ jobs:
 
       - name: Test (gui + wgc + record)
         run: cargo test --features "gui wgc record"
+
+  msrv:
+    name: MSRV (declared rust-version)
+    runs-on: ubuntu-latest
+    env:
+      # MSRV check is build-only — don't deny warnings the older compiler emits.
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.85.0"
+      - uses: Swatinem/rust-cache@v2
+
+      # Build core (default features) on exactly the declared rust-version, so the
+      # locked dependency tree can't push the real MSRV above the published claim.
+      - name: Build on declared MSRV
+        run: cargo build --all-targets

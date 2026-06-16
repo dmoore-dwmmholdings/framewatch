@@ -7,6 +7,61 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-16
+
+This release closes the gaps from the v0.4.1 functional assessment and expands the
+test suite (the pure, cross-platform core is now ~100% covered).
+
+### Added
+
+- **Opt-in automatic spinner detection (H1).** `watch`/`shot` previously needed a
+  hand-drawn `Spinner` ROI to suppress a loading animation; with the new
+  `auto_detect_spinners` config flag (default off), a small, compact cluster of
+  high-change-rate tiles is detected automatically — its churn no longer counts as
+  meaningful change and it drives `busy_start`/`busy_end`, so the window can still
+  settle. Tunable via `auto_spinner_max_area` (default `0.05`). Automatic
+  *volatile-value* detection still requires an explicit `Volatile` ROI (false
+  positives there would suppress real frames).
+- **`dedup_forced` config (L1).** Optionally apply dHash dedup to forced
+  `Settled`/`Manual` emits so a workflow that settles repeatedly to the same view
+  doesn't save byte-identical money-frames (the first `Initial` frame is always
+  kept). Default off (prior behaviour).
+- **`Engine::set_session_id` (L2).** Embedders consuming events directly (e.g. via
+  `ChannelSink`) can stamp the `session_id` that `DirectorySink` would otherwise
+  fill; the `session_id`/`image` metadata fields are now documented as
+  sink-populated.
+
+### Fixed
+
+- **`--launch` child is no longer orphaned (N1).** A config/`--roi` error after
+  the program was launched left it running; `shot`/`record` now wrap the child in
+  a kill-on-drop guard so every exit path tears it down.
+- **Config validation hardened (M3).** `validate()` now rejects a non-positive
+  `image.scale`, an oversized `tile_grid` (which could exhaust memory via the
+  volatility ring), out-of-range ROI rects, an out-of-range `auto_spinner_max_area`,
+  and a zero-size `crop`; `watch_with` now calls `validate()` so embedders get the
+  same checks.
+- **`record`: stray temp video on mux failure (N2).** The intermediate
+  pre-mux video is now removed on the mux-error path too.
+- **`PROMPT.md` timestamp label (N3).** Said `mm:ss,mmm`; now correctly
+  `HH:MM:SS,mmm` (matching the rendered values).
+- **GUI capture-thread lifecycle (L4).** Each preview worker gets its own stop
+  flag + join handle (the prior one is stopped and joined before a new selection
+  starts), and `Start watching` is bounded to one concurrent session.
+
+### Changed
+
+- **MSRV is now `1.85`** — the floor the locked dependency tree actually requires
+  (edition2024), replacing the untested `1.78` claim. A CI job builds on exactly
+  the declared MSRV so it can't drift (M1).
+- **Packaging/docs hygiene (M2).** The published crate now ships
+  `dist/framewatch.json` and the sample packages the agent docs link to (only the
+  large prebuilt binary is excluded); stale `framewatch 0.1.0` version strings and
+  the fixture-dependent README embed example were corrected.
+- `--title` matching documented as a case-insensitive literal substring; the
+  `tokenize` (launch/transcribe) limitations (no escaping; backslashes literal)
+  are now documented (N4).
+
 ## [0.4.1] - 2026-06-15
 
 ### Fixed
@@ -158,7 +213,8 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.2.0...v0.3.0

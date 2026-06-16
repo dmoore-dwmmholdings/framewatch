@@ -30,7 +30,7 @@ wherever you cloned/built this repository.)
 Verify it:
 
 ```sh
-dist\framewatch.exe --version      # -> framewatch 0.1.0
+dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.5.0
 ```
 
 > **Platform.** Live capture is Windows-only (Graphics Capture API), compiled in
@@ -276,7 +276,7 @@ when known).
 ```jsonc
 {
   "session_id": "...",
-  "tool": "framewatch 0.1.0",
+  "tool": "framewatch 0.5.0",
   "target": { "title": "...", "exe": "...", "selected_via": "cli" },
   "started_at": "...Z",
   "ended_at": "...Z",                 // set on clean shutdown

@@ -33,6 +33,7 @@ pub struct Engine<C: Clock = SystemClock> {
     vol: Volatility,
     hasher: Hasher,
 
+    session_id: String,
     prev: Option<WorkingFrame>,
     state: State,
     first_done: bool,
@@ -62,6 +63,8 @@ impl<C: Clock> Engine<C> {
             cfg.volatility_window,
             cfg.busy_rate_threshold,
             cols as usize * rows as usize,
+            cfg.auto_detect_spinners,
+            cfg.auto_spinner_max_area,
         );
         Self {
             cfg,
@@ -71,6 +74,7 @@ impl<C: Clock> Engine<C> {
             roi,
             vol,
             hasher: Hasher::new(),
+            session_id: String::new(),
             prev: None,
             state: State::Idle,
             first_done: false,
@@ -92,6 +96,18 @@ impl<C: Clock> Engine<C> {
     /// The active configuration.
     pub fn config(&self) -> &Config {
         &self.cfg
+    }
+
+    /// Stamp `session_id` into every emitted [`CaptureMeta`].
+    ///
+    /// The engine leaves `session_id` empty by default; [`DirectorySink`] fills
+    /// it from the session it owns. Embedders consuming events directly (e.g. via
+    /// [`ChannelSink`]) can call this so the metadata carries the id too.
+    ///
+    /// [`DirectorySink`]: crate::sink::DirectorySink
+    /// [`ChannelSink`]: crate::sink::ChannelSink
+    pub fn set_session_id(&mut self, id: impl Into<String>) {
+        self.session_id = id.into();
     }
 
     /// Number of events emitted so far.
@@ -174,9 +190,16 @@ impl<C: Clock> Engine<C> {
         );
         let regions = self.vol.update(&td, &self.roi);
 
-        let rising: Vec<String> = self.vol.busy_rising().to_vec();
-        let falling: Vec<String> = self.vol.busy_falling().to_vec();
-        let busy_now = self.vol.any_busy();
+        // Combine hinted spinner edges with an opt-in auto-detected spinner.
+        let mut rising: Vec<String> = self.vol.busy_rising().to_vec();
+        let mut falling: Vec<String> = self.vol.busy_falling().to_vec();
+        if self.vol.auto_rising() {
+            rising.push("auto-spinner".to_string());
+        }
+        if self.vol.auto_falling() {
+            falling.push("auto-spinner".to_string());
+        }
+        let busy_now = self.vol.any_busy() || self.vol.auto_busy();
 
         let mut any_saved = false;
 
@@ -320,7 +343,7 @@ impl<C: Clock> Engine<C> {
         let mut count = 0u32;
         let mut watch_changed = false;
         for (i, &c) in td.changed.iter().enumerate() {
-            if !c || self.roi.is_excluded(i) {
+            if !c || self.roi.is_excluded(i) || self.vol.auto_excluded(i) {
                 continue;
             }
             count += 1;
@@ -357,10 +380,16 @@ impl<C: Clock> Engine<C> {
             }
             if save {
                 let h = self.hasher.hash(wf);
+                // Dedup non-forced emits always; forced `Settled`/`Manual` only
+                // when `dedup_forced` is set (the first `Initial` frame is never
+                // deduped, so a session always has a baseline image).
+                let dedup_this = !force
+                    || (self.cfg.dedup_forced
+                        && matches!(kind, EventKind::Settled | EventKind::Manual));
                 if let Some(prev) = &self.last_saved_dhash {
                     let d = hamming(&h, prev);
                     hamming_val = Some(d);
-                    if !force && d <= self.cfg.dedup_hamming {
+                    if dedup_this && d <= self.cfg.dedup_hamming {
                         save = false;
                     }
                 }
@@ -485,7 +514,7 @@ impl<C: Clock> Engine<C> {
         let note = self.note_for(kind, &change, regions, &timing, coalesced);
 
         CaptureMeta {
-            session_id: String::new(),
+            session_id: self.session_id.clone(),
             seq,
             id: format!("f{seq:06}"),
             kind,

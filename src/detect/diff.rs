@@ -232,3 +232,81 @@ fn connected_bboxes(
 
     boxes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detect::roi::TileMask;
+    use crate::frame::{RawFrame, WindowInfo};
+    use std::time::Instant;
+
+    fn wf(cols: u16, rows: u16, luma: Vec<u8>) -> WorkingFrame {
+        WorkingFrame {
+            cols,
+            rows,
+            luma: luma.into_boxed_slice(),
+        }
+    }
+
+    #[test]
+    fn empty_diff_and_working_frame_len() {
+        let d = TileDiff::empty(4, 3);
+        assert_eq!(d.changed.len(), 12);
+        assert_eq!(d.changed_count, 0);
+        let w = wf(4, 3, vec![0; 12]);
+        assert_eq!(w.len(), 12);
+        assert!(!w.is_empty());
+    }
+
+    #[test]
+    fn flags_tiles_above_threshold_only() {
+        let prev = wf(4, 1, vec![0, 0, 0, 0]);
+        let cur = wf(4, 1, vec![0, 100, 5, 0]);
+        let td = diff(&prev, &cur, 12, &TileMask::empty(4), 40, 10);
+        assert!(td.changed[1] && !td.changed[2]); // 100 > 12; 5 <= 12
+        assert_eq!(td.changed_count, 1);
+        assert!(td.area_ratio > 0.0);
+    }
+
+    #[test]
+    fn ignore_mask_excludes_tiles() {
+        let prev = wf(2, 1, vec![0, 0]);
+        let cur = wf(2, 1, vec![200, 200]);
+        let mut ignore = TileMask::empty(2);
+        ignore.set(0);
+        let td = diff(&prev, &cur, 12, &ignore, 20, 10);
+        assert!(!td.changed[0] && td.changed[1]);
+    }
+
+    #[test]
+    fn disjoint_clusters_yield_separate_bboxes() {
+        let prev = wf(5, 1, vec![0; 5]);
+        let cur = wf(5, 1, vec![200, 0, 0, 0, 200]); // tiles 0 and 4
+        let td = diff(&prev, &cur, 12, &TileMask::empty(5), 50, 10);
+        assert_eq!(td.changed_count, 2);
+        assert_eq!(td.bboxes.len(), 2);
+    }
+
+    #[test]
+    fn mismatched_grid_sizes_report_no_change() {
+        let prev = wf(2, 1, vec![0, 0]);
+        let cur = wf(4, 1, vec![0; 4]);
+        let td = diff(&prev, &cur, 12, &TileMask::empty(4), 40, 10);
+        assert_eq!(td.changed_count, 0);
+    }
+
+    #[test]
+    fn from_raw_downsamples_to_grid() {
+        let f = RawFrame::from_bgra(
+            vec![128u8; 4 * 2 * 4],
+            4,
+            2,
+            Instant::now(),
+            chrono::Utc::now(),
+            WindowInfo::synthetic("t", 4, 2),
+        );
+        let w = WorkingFrame::from_raw(&f, 2, 2);
+        assert_eq!((w.cols, w.rows, w.luma.len()), (2, 2, 4));
+        assert!(w.luma.iter().all(|&l| l > 100)); // grey ~128
+    }
+}

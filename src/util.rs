@@ -5,10 +5,17 @@
 /// Quotes group a token and are removed from the output. Used to parse the
 /// `--launch` and `--transcribe-cmd` command strings.
 ///
+/// **Limitations (by design):** there is no escape mechanism — a literal
+/// double-quote cannot be included in an argument, and backslashes are taken
+/// literally (so Windows paths like `C:\models\ggml.bin` pass through unchanged).
+/// An argument that itself contains spaces must be wrapped in double quotes. If
+/// you need full control, build the argument vector yourself rather than a
+/// command string.
+///
 /// ```
 /// assert_eq!(
-///     framewatch::tokenize("prog --flag \"two words\""),
-///     vec!["prog", "--flag", "two words"]
+///     framewatch::tokenize("prog --flag \"two words\" C:\\path\\file"),
+///     vec!["prog", "--flag", "two words", "C:\\path\\file"]
 /// );
 /// ```
 pub fn tokenize(s: &str) -> Vec<String> {

@@ -67,3 +67,55 @@ impl Hasher {
 pub fn hamming(a: &ImgHash, b: &ImgHash) -> u32 {
     a.0.dist(&b.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wf(cols: u16, rows: u16, fill: impl Fn(u16, u16) -> u8) -> WorkingFrame {
+        let mut luma = Vec::with_capacity(cols as usize * rows as usize);
+        for r in 0..rows {
+            for c in 0..cols {
+                luma.push(fill(c, r));
+            }
+        }
+        WorkingFrame {
+            cols,
+            rows,
+            luma: luma.into_boxed_slice(),
+        }
+    }
+
+    #[test]
+    fn identical_frames_hash_equal_distance_zero() {
+        let h = Hasher::new();
+        let a = wf(16, 16, |c, _| (c * 16) as u8);
+        let b = wf(16, 16, |c, _| (c * 16) as u8);
+        assert_eq!(hamming(&h.hash(&a), &h.hash(&b)), 0);
+    }
+
+    #[test]
+    fn different_frames_differ() {
+        let h = Hasher::default();
+        let a = wf(16, 16, |c, _| (c * 16) as u8); // horizontal gradient
+        let b = wf(16, 16, |_, r| (r * 16) as u8); // vertical gradient
+        assert!(hamming(&h.hash(&a), &h.hash(&b)) > 0);
+    }
+
+    #[test]
+    fn to_hex_is_lowercase_and_64_bit() {
+        let h = Hasher::new();
+        let hex = h.hash(&wf(16, 16, |c, r| (c ^ r) as u8)).to_hex();
+        assert_eq!(hex.len(), 16); // 8 bytes -> 16 hex chars
+        assert!(hex
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn degenerate_frame_does_not_panic() {
+        // Empty luma -> GrayImage::from_raw returns None -> 1x1 fallback.
+        let h = Hasher::new();
+        let _ = h.hash(&wf(0, 0, |_, _| 0));
+    }
+}

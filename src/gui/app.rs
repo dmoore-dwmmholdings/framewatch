@@ -31,6 +31,12 @@ struct FrameWatchApp {
 
     shared: Arc<Shared>,
     capture_running: bool,
+    /// Join handle for the current preview worker, so the prior one is stopped
+    /// and joined before a new selection starts (no leaked capture threads).
+    preview_handle: Option<std::thread::JoinHandle<()>>,
+    /// True while a `watch` session thread is running, so repeated "Start
+    /// watching" clicks can't spawn unbounded concurrent sessions.
+    watch_active: Arc<AtomicBool>,
     texture: Option<TextureHandle>,
 
     new_kind: RoiKind,
@@ -54,6 +60,8 @@ impl FrameWatchApp {
                 stop: AtomicBool::new(false),
             }),
             capture_running: false,
+            preview_handle: None,
+            watch_active: Arc::new(AtomicBool::new(false)),
             texture: None,
             new_kind: RoiKind::Spinner,
             new_label: String::new(),
@@ -77,18 +85,22 @@ impl FrameWatchApp {
     }
 
     fn start_preview(&mut self, hwnd: isize) {
+        // Stop and join the prior worker first, then give the new one its *own*
+        // Shared so the two can never race on `latest`/`stop`.
         self.stop_preview();
         let mut cfg = self.config.clone();
         cfg.target = Target::ByHwnd(hwnd);
-        let shared = self.shared.clone();
-        shared.stop.store(false, Ordering::Relaxed);
+        let shared = Arc::new(Shared {
+            latest: Mutex::new(None),
+            stop: AtomicBool::new(false),
+        });
+        self.shared = shared.clone();
 
-        std::thread::spawn(move || {
-            let backend = match crate::default_backend(&cfg) {
+        let handle = std::thread::spawn(move || {
+            let mut backend = match crate::default_backend(&cfg) {
                 Ok(b) => b,
                 Err(_) => return,
             };
-            let mut backend = backend;
             let _ = backend.run(&mut |frame| {
                 if let Ok(mut slot) = shared.latest.lock() {
                     *slot = Some(frame);
@@ -100,14 +112,16 @@ impl FrameWatchApp {
                 }
             });
         });
+        self.preview_handle = Some(handle);
         self.capture_running = true;
     }
 
     fn stop_preview(&mut self) {
-        if self.capture_running {
-            self.shared.stop.store(true, Ordering::Relaxed);
-            self.capture_running = false;
+        self.shared.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.preview_handle.take() {
+            let _ = handle.join();
         }
+        self.capture_running = false;
     }
 
     /// Pull the latest frame (if any) into a (downscaled) egui texture.
@@ -124,6 +138,10 @@ impl FrameWatchApp {
             self.status = "Select a window first.".into();
             return;
         };
+        if self.watch_active.load(Ordering::Relaxed) {
+            self.status = "A watch session is already running.".into();
+            return;
+        }
         let hwnd = self.windows[idx].hwnd;
         let mut cfg = self.config.clone();
         cfg.target = Target::ByHwnd(hwnd);
@@ -131,8 +149,13 @@ impl FrameWatchApp {
             Ok(sink) => {
                 let dir = sink.session().dir.clone();
                 self.status = format!("Watching → {}", dir.display());
+                // Bound to one concurrent session: the flag is cleared when the
+                // session thread exits (window closed / stop / error).
+                self.watch_active.store(true, Ordering::Relaxed);
+                let active = self.watch_active.clone();
                 std::thread::spawn(move || {
                     let _ = crate::watch(cfg, sink);
+                    active.store(false, Ordering::Relaxed);
                 });
             }
             Err(e) => self.status = format!("Failed to start: {e}"),

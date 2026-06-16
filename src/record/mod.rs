@@ -202,8 +202,11 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
                 (Some(v), Some(a)) => -(v - a).as_secs_f64(),
                 _ => 0.0,
             };
-            ffmpeg::run_mux(&cfg.audio_out, &temp_video, audio_offset_s, &cfg.video_out)?;
+            // Remove the intermediate video on every path (success or mux
+            // failure) so a failed mux doesn't leave a stray temp file.
+            let mux = ffmpeg::run_mux(&cfg.audio_out, &temp_video, audio_offset_s, &cfg.video_out);
             let _ = std::fs::remove_file(&temp_video);
+            mux?;
             Some(AudioInfo {
                 sample_rate: stats.sample_rate,
                 channels: stats.channels,

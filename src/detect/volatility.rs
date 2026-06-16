@@ -35,11 +35,29 @@ pub struct Volatility {
     falling: Vec<String>,
     any_busy: bool,
     any_volatile_active: bool,
+    // Opt-in automatic spinner detection.
+    auto_spinner: bool,
+    auto_max_area: f32,
+    auto_excluded: Vec<bool>,
+    auto_busy: bool,
+    auto_busy_prev: bool,
+    auto_rising: bool,
+    auto_falling: bool,
 }
 
 impl Volatility {
     /// Create a tracker for `num_tiles` tiles.
-    pub fn new(window: u16, busy_threshold: f32, num_tiles: usize) -> Self {
+    ///
+    /// `auto_spinner` enables automatic detection of a small, compact cluster of
+    /// high-change-rate tiles (covering at most `auto_max_area` of the frame) as
+    /// a spinner, with no ROI hint.
+    pub fn new(
+        window: u16,
+        busy_threshold: f32,
+        num_tiles: usize,
+        auto_spinner: bool,
+        auto_max_area: f32,
+    ) -> Self {
         let window = window.max(1);
         Self {
             window,
@@ -54,6 +72,13 @@ impl Volatility {
             falling: Vec::new(),
             any_busy: false,
             any_volatile_active: false,
+            auto_spinner,
+            auto_max_area,
+            auto_excluded: vec![false; num_tiles],
+            auto_busy: false,
+            auto_busy_prev: false,
+            auto_rising: false,
+            auto_falling: false,
         }
     }
 
@@ -135,7 +160,64 @@ impl Volatility {
             });
         }
 
+        self.detect_auto_spinner(roi);
+
         states
+    }
+
+    /// Opt-in: classify a small, compact cluster of high-change-rate tiles (not
+    /// already covered by a hint and not ignored) as a spinner. Sets the
+    /// auto-excluded mask and rising/falling edges.
+    fn detect_auto_spinner(&mut self, roi: &RoiSet) {
+        self.auto_rising = false;
+        self.auto_falling = false;
+        if !self.auto_spinner {
+            return;
+        }
+        let mut hot = 0usize;
+        for t in 0..self.num_tiles {
+            let is_hot = self.tile_change_rate(t) >= self.busy_threshold
+                && !roi.is_excluded(t)
+                && !roi.ignore_mask().get(t);
+            self.auto_excluded[t] = is_hot;
+            if is_hot {
+                hot += 1;
+            }
+        }
+        let area = hot as f32 / self.num_tiles.max(1) as f32;
+        // A spinner is a *small* churning cluster; larger churn is real content.
+        let is_spinner = hot > 0 && area <= self.auto_max_area;
+        if !is_spinner {
+            for b in self.auto_excluded.iter_mut() {
+                *b = false;
+            }
+        }
+        let prev = self.auto_busy_prev;
+        self.auto_busy = is_spinner;
+        self.auto_rising = is_spinner && !prev;
+        self.auto_falling = !is_spinner && prev;
+        self.auto_busy_prev = is_spinner;
+    }
+
+    /// Whether tile `idx` belongs to the current auto-detected spinner.
+    #[inline]
+    pub fn auto_excluded(&self, idx: usize) -> bool {
+        self.auto_excluded.get(idx).copied().unwrap_or(false)
+    }
+
+    /// Whether an auto-detected spinner is currently busy.
+    pub fn auto_busy(&self) -> bool {
+        self.auto_busy
+    }
+
+    /// Whether an auto-detected spinner began animating this update.
+    pub fn auto_rising(&self) -> bool {
+        self.auto_rising
+    }
+
+    /// Whether an auto-detected spinner stopped animating this update.
+    pub fn auto_falling(&self) -> bool {
+        self.auto_falling
     }
 
     /// Spinner regions that became busy this update.

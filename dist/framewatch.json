@@ -1,6 +1,6 @@
 {
   "tool": "framewatch",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents; plus a `record` mode that bundles a narrated screen recording + timestamped transcript into an LLM package.",
   "docs": "docs/AGENT_INTEGRATION.md",
   "sample_session": "dist/sample-session",

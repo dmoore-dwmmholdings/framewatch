@@ -247,7 +247,14 @@ pub struct TimingMeta {
 /// One of these is serialized per line into `timeline.jsonl`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureMeta {
-    /// Session identifier (filled in by the sink that owns the session).
+    /// Session identifier. Populated by [`DirectorySink`] (which owns the
+    /// session); empty when produced by the engine directly unless set via
+    /// [`Engine::set_session_id`]. Other sinks (e.g. [`ChannelSink`]) leave it as
+    /// the engine produced it.
+    ///
+    /// [`DirectorySink`]: crate::sink::DirectorySink
+    /// [`ChannelSink`]: crate::sink::ChannelSink
+    /// [`Engine::set_session_id`]: crate::Engine::set_session_id
     pub session_id: String,
     /// Monotonic event sequence number.
     pub seq: u64,
@@ -260,6 +267,10 @@ pub struct CaptureMeta {
     /// Milliseconds since session start (monotonic).
     pub elapsed_ms: u64,
     /// Relative path to the saved image, or `None` for image-less events.
+    ///
+    /// Set by [`DirectorySink`](crate::sink::DirectorySink) when it writes the
+    /// PNG; the engine emits `None` here (the encoded bytes live on
+    /// [`CaptureEvent::image`]) so direct consumers read the bytes, not a path.
     pub image: Option<String>,
     /// Window metadata.
     pub window: WindowMeta,
@@ -288,5 +299,64 @@ impl CaptureEvent {
     /// The event kind (shortcut for `self.meta.kind`).
     pub fn kind(&self) -> EventKind {
         self.meta.kind
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_kind_as_str_round_trips_via_serde() {
+        for k in EventKind::ALL {
+            let json = serde_json::to_string(&k).unwrap();
+            assert_eq!(json, format!("\"{}\"", k.as_str()));
+            let back: EventKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, k);
+        }
+        assert_eq!(EventKind::ALL.len(), 7);
+    }
+
+    #[test]
+    fn image_format_ext() {
+        assert_eq!(ImageFormat::Png.ext(), "png");
+        assert_eq!(ImageFormat::Jpeg.ext(), "jpg");
+        assert_eq!(ImageFormat::Webp.ext(), "webp");
+    }
+
+    #[test]
+    fn save_mask_construction_and_membership() {
+        assert!(!SaveMask::NONE.contains(EventKind::Settled));
+        let m = SaveMask::from_kinds(&[EventKind::Initial, EventKind::Settled]);
+        assert!(m.contains(EventKind::Initial));
+        assert!(m.contains(EventKind::Settled));
+        assert!(!m.contains(EventKind::ValueSample));
+        let m2 = SaveMask::NONE.with(EventKind::Manual);
+        assert!(m2.contains(EventKind::Manual));
+        // `kinds()` returns members in ALL order.
+        assert_eq!(m.kinds(), vec![EventKind::Initial, EventKind::Settled]);
+    }
+
+    #[test]
+    fn save_mask_default_contains_money_frames() {
+        let d = SaveMask::default();
+        for k in [
+            EventKind::Initial,
+            EventKind::Settled,
+            EventKind::BusyEnd,
+            EventKind::Manual,
+        ] {
+            assert!(d.contains(k), "default should save {k:?}");
+        }
+        assert!(!d.contains(EventKind::ValueSample));
+    }
+
+    #[test]
+    fn save_mask_serde_is_kind_array() {
+        let m = SaveMask::from_kinds(&[EventKind::Initial, EventKind::BusyEnd]);
+        let json = serde_json::to_string(&m).unwrap();
+        assert_eq!(json, r#"["initial","busy_end"]"#);
+        let back: SaveMask = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m);
     }
 }

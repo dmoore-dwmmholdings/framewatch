@@ -172,3 +172,76 @@ pub fn tiles_for_rect(rect_norm: [f32; 4], cols: u16, rows: u16) -> Vec<usize> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tile_mask_set_get_any_len() {
+        let mut m = TileMask::empty(4);
+        assert!(!m.any());
+        assert_eq!(m.len(), 4);
+        assert!(!m.is_empty());
+        m.set(2);
+        m.set(99); // out of range: ignored, no panic
+        assert!(m.get(2));
+        assert!(!m.get(0));
+        assert!(!m.get(99));
+        assert!(m.any());
+        assert!(TileMask::empty(0).is_empty());
+    }
+
+    #[test]
+    fn tiles_for_rect_covers_expected_cells() {
+        // Top-left quarter of a 10x10 grid.
+        let tiles = tiles_for_rect([0.0, 0.0, 0.5, 0.5], 10, 10);
+        assert_eq!(tiles.len(), 25);
+        assert!(tiles.contains(&0));
+        assert!(!tiles.contains(&9)); // top-right corner not covered
+    }
+
+    #[test]
+    fn tiles_for_rect_tiny_region_gets_one_tile() {
+        let tiles = tiles_for_rect([0.5, 0.5, 0.001, 0.001], 4, 4);
+        assert_eq!(tiles.len(), 1);
+        // Zero-area region -> no tiles.
+        assert!(tiles_for_rect([0.5, 0.5, 0.0, 0.0], 4, 4).is_empty());
+    }
+
+    #[test]
+    fn roiset_builds_masks_and_regions() {
+        let hints = vec![
+            RoiHint {
+                kind: RoiKind::Ignore,
+                label: "clock".into(),
+                rect_norm: [0.0, 0.0, 0.25, 0.25],
+            },
+            RoiHint {
+                kind: RoiKind::Spinner,
+                label: "spin".into(),
+                rect_norm: [0.5, 0.5, 0.25, 0.25],
+            },
+            RoiHint {
+                kind: RoiKind::Watch,
+                label: "watch".into(),
+                rect_norm: [0.75, 0.0, 0.25, 0.25],
+            },
+            RoiHint {
+                kind: RoiKind::Volatile,
+                label: "vol".into(),
+                rect_norm: [0.0, 0.75, 0.25, 0.25],
+            },
+        ];
+        let set = RoiSet::build(&hints, 4, 4);
+        assert_eq!((set.cols(), set.rows()), (4, 4));
+        assert_eq!(set.regions().len(), 4);
+        assert!(set.ignore_mask().any());
+        // tile 0 is in the Ignore region; the Spinner tile (10) is excluded.
+        assert!(set.ignore_mask().get(0));
+        assert!(set.is_excluded(10)); // row 2, col 2 of a 4x4 grid
+        assert!(set.is_watch(3)); // row 0, col 3
+        let spinners: Vec<usize> = set.region_indices_of_kind(RoiKind::Spinner).collect();
+        assert_eq!(spinners, vec![1]);
+    }
+}

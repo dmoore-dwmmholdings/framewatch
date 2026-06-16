@@ -190,3 +190,61 @@ impl SessionManifest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use std::path::Path;
+
+    fn t() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 6, 13, 15, 4, 5).unwrap()
+    }
+
+    #[test]
+    fn session_id_format_and_exe_stem_cleaning() {
+        assert_eq!(make_session_id(t(), "Code.exe"), "2026-06-13T15-04-05_Code");
+        assert_eq!(
+            make_session_id(t(), r"C:\path\My App.exe"),
+            "2026-06-13T15-04-05_My-App"
+        );
+        // All-special / empty hints fall back to "window".
+        assert_eq!(make_session_id(t(), "***"), "2026-06-13T15-04-05_window");
+        assert_eq!(make_session_id(t(), ""), "2026-06-13T15-04-05_window");
+    }
+
+    #[test]
+    fn target_hint_for_each_variant() {
+        assert_eq!(target_hint(&Target::ByExe("a.exe".into())), "a.exe");
+        assert_eq!(target_hint(&Target::ByTitleRegex("T".into())), "T");
+        assert_eq!(target_hint(&Target::ByHwnd(5)), "hwnd5");
+        assert_eq!(target_hint(&Target::ByPid(9)), "pid9");
+    }
+
+    #[test]
+    fn session_paths_are_under_the_session_dir() {
+        let s = Session::new(Path::new("/out"), t(), "Code.exe");
+        assert_eq!(s.id, "2026-06-13T15-04-05_Code");
+        assert!(s.frames_dir().ends_with("frames"));
+        assert!(s.timeline_path().ends_with("timeline.jsonl"));
+        assert!(s.manifest_path().ends_with("session.json"));
+        assert!(s.readme_path().ends_with("README_FOR_AGENT.md"));
+    }
+
+    #[test]
+    fn manifest_records_target_and_tool() {
+        let cfg = Config::builder()
+            .target(Target::ByTitleRegex("My App".into()))
+            .build()
+            .unwrap();
+        let s = Session::new(Path::new("/out"), t(), "app");
+        let m = SessionManifest::new(&s, &cfg, "cli");
+        assert_eq!(m.target.title.as_deref(), Some("My App"));
+        assert!(m.target.exe.is_none());
+        assert_eq!(m.target.selected_via, "cli");
+        assert!(m.tool.starts_with("framewatch "));
+        // ByPid / ByHwnd carry neither title nor exe.
+        let mt = ManifestTarget::from_target(&Target::ByPid(3), "gui");
+        assert!(mt.title.is_none() && mt.exe.is_none());
+    }
+}
