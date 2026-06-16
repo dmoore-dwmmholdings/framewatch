@@ -16,6 +16,11 @@ const PREVIEW_MAX_W: u32 = 720;
 struct Shared {
     latest: Mutex<Option<RawFrame>>,
     stop: AtomicBool,
+    /// The backend's own stop flag, published by the worker once it starts so
+    /// `stop_preview` can interrupt an *idle* window (which delivers no frames,
+    /// so the `run` callback that polls `stop` never fires). `None` until the
+    /// worker has registered it.
+    backend_stop: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 struct DragState {
@@ -31,6 +36,12 @@ struct FrameWatchApp {
 
     shared: Arc<Shared>,
     capture_running: bool,
+    /// Join handle for the current preview worker, so the prior one is stopped
+    /// and joined before a new selection starts (no leaked capture threads).
+    preview_handle: Option<std::thread::JoinHandle<()>>,
+    /// True while a `watch` session thread is running, so repeated "Start
+    /// watching" clicks can't spawn unbounded concurrent sessions.
+    watch_active: Arc<AtomicBool>,
     texture: Option<TextureHandle>,
 
     new_kind: RoiKind,
@@ -52,8 +63,11 @@ impl FrameWatchApp {
             shared: Arc::new(Shared {
                 latest: Mutex::new(None),
                 stop: AtomicBool::new(false),
+                backend_stop: Mutex::new(None),
             }),
             capture_running: false,
+            preview_handle: None,
+            watch_active: Arc::new(AtomicBool::new(false)),
             texture: None,
             new_kind: RoiKind::Spinner,
             new_label: String::new(),
@@ -64,31 +78,74 @@ impl FrameWatchApp {
     }
 
     fn refresh_windows(&mut self) {
+        // `selected` is an index into the *old* `windows`; remember the actual
+        // window (by hwnd) so we can re-find it in the new list. Otherwise a
+        // refresh that shrinks or reorders the list would leave `selected`
+        // pointing at the wrong window — or out of bounds, panicking the next
+        // `start_watching` / `save_rois_per_user`.
+        let prev_hwnd = self
+            .selected
+            .and_then(|idx| self.windows.get(idx))
+            .map(|w| w.hwnd);
         match crate::enumerate_windows() {
             Ok(list) => {
                 self.windows = list;
+                self.selected =
+                    prev_hwnd.and_then(|h| self.windows.iter().position(|w| w.hwnd == h));
                 self.status = format!("{} capturable windows.", self.windows.len());
             }
             Err(e) => {
                 self.windows.clear();
+                self.selected = None;
                 self.status = format!("Enumeration unavailable: {e}");
             }
+        }
+        // The selected window is gone (vanished or enumeration failed): tear down
+        // its now-orphaned preview and drop the stale image so ROI edits can't
+        // land on it.
+        if prev_hwnd.is_some() && self.selected.is_none() {
+            self.stop_preview();
+            self.texture = None;
+            self.drag = None;
         }
     }
 
     fn start_preview(&mut self, hwnd: isize) {
+        // Stop and join the prior worker first, then give the new one its *own*
+        // Shared so the two can never race on `latest`/`stop`.
         self.stop_preview();
+        // Drop the previous window's preview so its stale image isn't shown (and
+        // ROI edits aren't made against it) while the new backend spins up — or
+        // forever, if the new backend fails to start.
+        self.texture = None;
+        self.drag = None;
         let mut cfg = self.config.clone();
         cfg.target = Target::ByHwnd(hwnd);
-        let shared = self.shared.clone();
-        shared.stop.store(false, Ordering::Relaxed);
+        let shared = Arc::new(Shared {
+            latest: Mutex::new(None),
+            stop: AtomicBool::new(false),
+            backend_stop: Mutex::new(None),
+        });
+        self.shared = shared.clone();
 
-        std::thread::spawn(move || {
-            let backend = match crate::default_backend(&cfg) {
+        let handle = std::thread::spawn(move || {
+            let mut backend = match crate::default_backend(&cfg) {
                 Ok(b) => b,
                 Err(_) => return,
             };
-            let mut backend = backend;
+            // Publish the backend's stop flag so `stop_preview` can interrupt an
+            // idle window. Hold the lock across the `stop` check + store so we
+            // serialize with `stop_preview` (which sets `stop` *before* locking):
+            // either we observe its request and bail, or it sees our signal and
+            // trips it — never a lost wakeup that would hang `join()`.
+            if let Some(signal) = backend.stop_signal() {
+                if let Ok(mut slot) = shared.backend_stop.lock() {
+                    if shared.stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    *slot = Some(signal);
+                }
+            }
             let _ = backend.run(&mut |frame| {
                 if let Ok(mut slot) = shared.latest.lock() {
                     *slot = Some(frame);
@@ -100,14 +157,23 @@ impl FrameWatchApp {
                 }
             });
         });
+        self.preview_handle = Some(handle);
         self.capture_running = true;
     }
 
     fn stop_preview(&mut self) {
-        if self.capture_running {
-            self.shared.stop.store(true, Ordering::Relaxed);
-            self.capture_running = false;
+        self.shared.stop.store(true, Ordering::Relaxed);
+        // Trip the backend's own flag too: an idle window delivers no frames, so
+        // the `run` callback (which is what polls `stop`) may never run.
+        if let Ok(slot) = self.shared.backend_stop.lock() {
+            if let Some(signal) = slot.as_ref() {
+                signal.store(true, Ordering::Relaxed);
+            }
         }
+        if let Some(handle) = self.preview_handle.take() {
+            let _ = handle.join();
+        }
+        self.capture_running = false;
     }
 
     /// Pull the latest frame (if any) into a (downscaled) egui texture.
@@ -124,6 +190,10 @@ impl FrameWatchApp {
             self.status = "Select a window first.".into();
             return;
         };
+        if self.watch_active.load(Ordering::Relaxed) {
+            self.status = "A watch session is already running.".into();
+            return;
+        }
         let hwnd = self.windows[idx].hwnd;
         let mut cfg = self.config.clone();
         cfg.target = Target::ByHwnd(hwnd);
@@ -131,8 +201,13 @@ impl FrameWatchApp {
             Ok(sink) => {
                 let dir = sink.session().dir.clone();
                 self.status = format!("Watching → {}", dir.display());
+                // Bound to one concurrent session: the flag is cleared when the
+                // session thread exits (window closed / stop / error).
+                self.watch_active.store(true, Ordering::Relaxed);
+                let active = self.watch_active.clone();
                 std::thread::spawn(move || {
                     let _ = crate::watch(cfg, sink);
+                    active.store(false, Ordering::Relaxed);
                 });
             }
             Err(e) => self.status = format!("Failed to start: {e}"),
@@ -242,6 +317,14 @@ impl FrameWatchApp {
                 }
             }
         }
+    }
+}
+
+impl Drop for FrameWatchApp {
+    fn drop(&mut self) {
+        // Signal and join the preview worker on window close so we don't abandon
+        // the capture thread (or, with an idle window, leave it spinning).
+        self.stop_preview();
     }
 }
 

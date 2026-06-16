@@ -374,4 +374,46 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, TranscribeError::Parse(_)));
     }
+
+    #[test]
+    fn command_rejects_empty_template() {
+        let err = Transcriber::Command {
+            template: "   ".into(),
+        }
+        .transcribe(Path::new("a.wav"), Path::new("."))
+        .unwrap_err();
+        assert!(matches!(err, TranscribeError::Parse(_)));
+    }
+
+    #[test]
+    fn from_srt_handles_index_crlf_dot_separator_and_multiline() {
+        let srt = "1\r\n00:00:01,000 --> 00:00:02,000\r\nhello\r\nworld\r\n\r\n\
+                   2\r\n00:00:03.500 --> 00:00:04,000\r\nbye\r\n";
+        let t = Transcript::from_srt(srt).unwrap();
+        assert_eq!(t.segments.len(), 2);
+        assert_eq!(t.segments[0].text, "hello world"); // multi-line cue joined
+        assert_eq!(t.segments[0].start_ms, 1000);
+        assert_eq!(t.segments[1].start_ms, 3500); // '.' separator tolerated
+        assert_eq!(t.duration_ms, 4000);
+    }
+
+    #[test]
+    fn from_srt_empty_and_bad_timing() {
+        assert!(Transcript::from_srt("").unwrap().is_empty());
+        assert!(Transcript::from_srt("1\nnot a timing line\ntext\n").is_err());
+        // hours component present.
+        let t = Transcript::from_srt("1\n01:02:03,004 --> 01:02:04,000\nx\n").unwrap();
+        assert_eq!(t.segments[0].start_ms, 3_723_004);
+    }
+
+    #[test]
+    fn engine_meta_labels() {
+        assert_eq!(Transcriber::Disabled.engine_meta(), ("none", None));
+        let (eng, model) = Transcriber::Command {
+            template: "whisper-cli -f {audio}".into(),
+        }
+        .engine_meta();
+        assert_eq!(eng, "command");
+        assert_eq!(model.as_deref(), Some("whisper-cli -f {audio}"));
+    }
 }

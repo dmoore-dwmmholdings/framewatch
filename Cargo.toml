@@ -1,15 +1,20 @@
 [package]
 name = "framewatch"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
-rust-version = "1.78"
+# Floor is set by the locked dependency tree (image 0.25 needs 1.88,
+# image_hasher 3.1 needs 1.87), not by framewatch's own source. A CI job builds
+# on exactly this version so the claim can't drift.
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "Event-driven, change-triggered window capture that emits timestamped screenshots + metadata for AI agents."
 repository = "https://github.com/dmoore-dwmmholdings/framewatch"
 readme = "README.md"
 keywords = ["screen-capture", "screenshot", "windows", "agent", "automation"]
 categories = ["multimedia", "os::windows-apis", "computer-vision"]
-exclude = ["tests/fixtures/*.png", "/.github", "framewatch-spec.md", "dist"]
+# Ship the machine-readable manifest + sample packages (the agent docs link them)
+# but not the large prebuilt binary or the heavy spec / CI config / test fixtures.
+exclude = ["tests/fixtures/*.png", "/.github", "framewatch-spec.md", "dist/framewatch.exe"]
 
 [features]
 default = ["cli"]

@@ -27,7 +27,9 @@ opens only the images that matter.
 
 Detection is **heuristic and runs in the hot path with no LLM call**. You can
 pre-annotate where spinners and volatile values live via the GUI, which makes
-detection both faster and more accurate.
+detection both faster and more accurate — or set `auto_detect_spinners = true`
+to have a small, compact loading animation detected and collapsed automatically,
+no ROI hint required.
 
 ## What makes it new
 
@@ -166,7 +168,8 @@ fn main() -> anyhow::Result<()> {
 
     // On Windows (built with `--features wgc`), use the live backend:
     // let mut backend = framewatch::default_backend(&config)?;
-    let mut backend = framewatch::MockBackend::from_pngs("tests/fixtures/*.png")?;
+    // Off-Windows / in tests, drive the engine with your own frames:
+    let mut backend = framewatch::MockBackend::new(vec![/* RawFrames */]);
 
     backend.run(&mut |frame| {
         for event in engine.process(&frame, frame.captured_at) {

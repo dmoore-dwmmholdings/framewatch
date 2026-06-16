@@ -70,3 +70,38 @@ impl<C: Clock + ?Sized> Clock for &C {
         (**self).now()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mock_clock_advances_only_on_demand() {
+        let c = MockClock::new();
+        let t0 = c.now();
+        assert_eq!(c.now(), t0, "does not advance on its own");
+        c.advance(Duration::from_millis(250));
+        assert_eq!(c.now().duration_since(t0), Duration::from_millis(250));
+        c.advance_ms(750);
+        assert_eq!(c.now().duration_since(t0), Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn mock_clock_default_matches_new() {
+        let c = MockClock::default();
+        let t0 = c.now();
+        c.advance_ms(5);
+        assert!(c.now() > t0);
+    }
+
+    #[test]
+    fn system_clock_is_monotonic_nondecreasing() {
+        let c = SystemClock;
+        let a = c.now();
+        let b = c.now();
+        assert!(b >= a);
+        // The `&C: Clock` blanket impl forwards.
+        let r: &dyn Clock = &c;
+        assert!(r.now() >= a);
+    }
+}

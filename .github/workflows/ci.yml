@@ -14,17 +14,22 @@ env:
   # MSRV (egui 0.33 needs 1.88).
   RUST_VERSION: "1.96.0"
 
+# Third-party actions are pinned to a full commit SHA (with the human-readable
+# tag in a trailing comment) so a re-tagged or compromised release can't change
+# what CI runs. Bump the SHA + comment together when updating an action.
 jobs:
   core:
     name: Core (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Format
         run: cargo fmt --all --check
@@ -48,12 +53,14 @@ jobs:
     name: Windows (gui + wgc + record)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Build (gui + wgc + record)
         run: cargo build --features "gui wgc record"
@@ -63,3 +70,23 @@ jobs:
 
       - name: Test (gui + wgc + record)
         run: cargo test --features "gui wgc record"
+
+  msrv:
+    name: MSRV (declared rust-version)
+    runs-on: ubuntu-latest
+    env:
+      # MSRV check is build-only — don't deny warnings the older compiler emits.
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      # Build core (default features) on exactly the declared rust-version, so the
+      # locked dependency tree can't push the real MSRV above the published claim.
+      - name: Build on declared MSRV
+        run: cargo build --all-targets

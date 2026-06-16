@@ -122,6 +122,10 @@ pub fn watch_with<B: CaptureBackend, S: Sink>(
     mut backend: B,
     mut sink: S,
 ) -> Result<(), Error> {
+    // Validate here too, so embedders driving a custom backend get the same
+    // config checks as `watch` (which validates before resolving its backend).
+    config.validate()?;
+
     // Duration watchdog: fires even if the window is idle and delivers no frames
     // (the backend's run loop polls its stop flag).
     if config.stop_after_ms > 0 {
@@ -251,5 +255,60 @@ mod tests {
         });
         assert!(r.is_err());
         assert_eq!(calls.get(), 1, "non-retryable error returns immediately");
+    }
+
+    // Without the wgc backend (default features / non-Windows), backend
+    // construction reports NoBackend rather than panicking.
+    #[cfg(not(all(windows, feature = "wgc")))]
+    #[test]
+    fn no_backend_without_wgc() {
+        let cfg = Config::builder()
+            .target(Target::ByExe("x.exe".into()))
+            .build()
+            .unwrap();
+        assert!(matches!(default_backend(&cfg), Err(Error::NoBackend(_))));
+        let (sink, _rx) = ChannelSink::unbounded();
+        assert!(matches!(watch(cfg, sink), Err(Error::NoBackend(_))));
+    }
+
+    #[test]
+    fn watch_with_drives_mock_backend_through_crop() {
+        use crate::frame::{RawFrame, WindowInfo};
+        use std::time::Instant;
+        let mk = |v: u8| {
+            RawFrame::from_bgra(
+                vec![v; 40 * 30 * 4],
+                40,
+                30,
+                Instant::now(),
+                chrono::Utc::now(),
+                WindowInfo::synthetic("t", 40, 30),
+            )
+        };
+        let backend = MockBackend::new(vec![mk(10), mk(200)]);
+        let cfg = Config::builder()
+            .target(Target::ByExe("x.exe".into()))
+            .crop_xywh(0, 0, 20, 15) // exercises the crop branch
+            .stop_after_images(1)
+            .build()
+            .unwrap();
+        let (sink, rx) = ChannelSink::unbounded();
+        watch_with(cfg, backend, sink).unwrap();
+        let evs: Vec<_> = rx.try_iter().collect();
+        assert_eq!(evs.first().map(|e| e.kind()), Some(EventKind::Initial));
+    }
+
+    #[test]
+    fn watch_with_rejects_invalid_config() {
+        let mut cfg = Config::builder()
+            .target(Target::ByExe("x.exe".into()))
+            .build()
+            .unwrap();
+        cfg.tile_grid = (0, 0);
+        let (sink, _rx) = ChannelSink::unbounded();
+        assert!(matches!(
+            watch_with(cfg, MockBackend::new(vec![]), sink),
+            Err(Error::Config(_))
+        ));
     }
 }

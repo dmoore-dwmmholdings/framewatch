@@ -66,7 +66,7 @@ impl GraphicsCaptureApiHandler for Handler {
 
         // Keep window geometry (rect/dpi/foreground) fresh across resizes and
         // fullscreen transitions; ~every 30 frames to stay cheap.
-        if self.frame_count % 30 == 0 {
+        if self.frame_count.is_multiple_of(30) {
             crate::capture::windows::refresh_geometry(&mut self.window);
         }
         self.frame_count = self.frame_count.wrapping_add(1);

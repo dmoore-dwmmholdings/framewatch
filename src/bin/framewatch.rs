@@ -295,10 +295,13 @@ fn cmd_watch(args: WatchArgs) -> Result<()> {
 }
 
 fn cmd_shot(args: ShotArgs) -> Result<()> {
-    // 1. Optionally launch the target program; we capture its window by PID and
-    //    tear it down afterwards.
-    let mut child = match &args.launch {
-        Some(cmd) => Some(spawn_launch(cmd).context("launching --launch command")?),
+    // 1. Optionally launch the target program; we capture its window by PID. The
+    //    guard tears the child down on *every* exit path, including a config or
+    //    `--roi` error below (so a bad flag can't orphan the launched program).
+    let child = match &args.launch {
+        Some(cmd) => Some(ChildGuard::new(
+            spawn_launch(cmd).context("launching --launch command")?,
+        )),
         None => None,
     };
 
@@ -336,11 +339,9 @@ fn cmd_shot(args: ShotArgs) -> Result<()> {
     let (sink, rx) = ChannelSink::unbounded();
     let capture = framewatch::watch(config, sink);
 
-    // 4. Always tear down the launched process before reporting.
-    if let Some(c) = child.as_mut() {
-        let _ = c.kill();
-        let _ = c.wait();
-    }
+    // 4. Tear down the launched process before reporting (the guard also covers
+    //    any earlier error path).
+    drop(child);
     capture.context("capture")?;
 
     // 5. Pick the frame and write it to the requested path.
@@ -393,6 +394,31 @@ fn spawn_launch(cmd: &str) -> Result<std::process::Child> {
         .map_err(Into::into)
 }
 
+/// Kills (and reaps) a `--launch`ed child on drop, so the launched program is
+/// never orphaned if a later step (config load, `--roi` parse, validation, …)
+/// fails between spawning it and the explicit teardown.
+struct ChildGuard(Option<std::process::Child>);
+
+impl ChildGuard {
+    fn new(child: std::process::Child) -> Self {
+        Self(Some(child))
+    }
+
+    /// The launched process id (used to target capture by PID).
+    fn id(&self) -> u32 {
+        self.0.as_ref().map(|c| c.id()).unwrap_or(0)
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(mut c) = self.0.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
 #[cfg(feature = "record")]
 fn cmd_record(args: RecordArgs) -> Result<()> {
     use framewatch::recording::{files, AudioMeta, VideoMeta};
@@ -406,9 +432,12 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
         None => Config::default(),
     };
 
-    // 1. Optionally launch the target; then capture its window by PID.
-    let mut child = match &args.launch {
-        Some(cmd) => Some(spawn_launch(cmd).context("launching --launch command")?),
+    // 1. Optionally launch the target; capture its window by PID. The guard tears
+    //    the child down on every exit path (incl. a parse/setup error below).
+    let child = match &args.launch {
+        Some(cmd) => Some(ChildGuard::new(
+            spawn_launch(cmd).context("launching --launch command")?,
+        )),
         None => None,
     };
     let target = if let Some(c) = &child {
@@ -490,11 +519,9 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     };
     let outcome = record(rcfg);
 
-    // Always tear down a launched child before reporting.
-    if let Some(c) = child.as_mut() {
-        let _ = c.kill();
-        let _ = c.wait();
-    }
+    // Tear down the launched child before reporting (the guard also covers any
+    // earlier error path).
+    drop(child);
     let outcome = outcome.context("recording")?;
 
     // 6. Transcribe — only if audio was actually captured. A failure is
@@ -605,5 +632,33 @@ mod tests {
         assert_eq!((r.x, r.y, r.w, r.h), (10, 20, 300, 200));
         assert!(parse_roi("1,2,3").is_err());
         assert!(parse_roi("a,b,c,d").is_err());
+    }
+
+    /// A portable long-running child so we can prove the guard kills it.
+    #[cfg(windows)]
+    fn sleeper() -> std::process::Command {
+        let mut c = std::process::Command::new("ping");
+        c.args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null());
+        c
+    }
+    #[cfg(not(windows))]
+    fn sleeper() -> std::process::Command {
+        let mut c = std::process::Command::new("sleep");
+        c.arg("30");
+        c
+    }
+
+    #[test]
+    fn child_guard_kills_on_drop() {
+        let start = std::time::Instant::now();
+        {
+            let guard = ChildGuard::new(sleeper().spawn().expect("spawn sleeper"));
+            assert!(guard.id() > 0);
+        } // Drop kills + reaps; must not block for the child's full lifetime.
+        assert!(
+            start.elapsed().as_secs() < 5,
+            "ChildGuard::drop should kill the child promptly"
+        );
     }
 }

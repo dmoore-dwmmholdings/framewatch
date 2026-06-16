@@ -161,3 +161,78 @@ impl RawFrame {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn frame(w: u32, h: u32) -> RawFrame {
+        // Each pixel's blue channel = x, green = y (mod 256), for identifiability.
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let o = ((y * w + x) * 4) as usize;
+                buf[o] = x as u8;
+                buf[o + 1] = y as u8;
+                buf[o + 2] = 7;
+                buf[o + 3] = 255;
+            }
+        }
+        RawFrame::from_bgra(
+            buf,
+            w,
+            h,
+            Instant::now(),
+            chrono::Utc::now(),
+            WindowInfo::synthetic("t", w, h),
+        )
+    }
+
+    #[test]
+    fn rect_to_array_and_new() {
+        let r = Rect::new(-3, 4, 10, 20);
+        assert_eq!(r.to_array(), [-3, 4, 10, 20]);
+    }
+
+    #[test]
+    fn window_info_synthetic_defaults() {
+        let w = WindowInfo::synthetic("hi", 100, 50);
+        assert_eq!(w.title, "hi");
+        assert_eq!((w.rect.w, w.rect.h, w.dpi), (100, 50, 96));
+        assert!(w.foreground);
+    }
+
+    #[test]
+    fn from_bgra_sets_tight_stride_and_reads_pixels() {
+        let f = frame(4, 3);
+        assert_eq!(f.stride, 4 * 4);
+        assert_eq!(f.pixel(2, 1), (2, 1, 7, 255)); // (b, g, r, a)
+                                                   // Out-of-buffer read is saturating, not a panic.
+        let big = f.pixel(999, 999);
+        assert_eq!(big.3, 255);
+    }
+
+    #[test]
+    fn crop_subregion_is_tight_and_correct() {
+        let f = frame(8, 6);
+        let c = f.crop(Rect::new(2, 1, 3, 2));
+        assert_eq!((c.width, c.height, c.stride), (3, 2, 3 * 4));
+        // Top-left of the crop is source pixel (2,1).
+        assert_eq!(c.pixel(0, 0), (2, 1, 7, 255));
+    }
+
+    #[test]
+    fn crop_clamps_to_bounds() {
+        let f = frame(8, 6);
+        let c = f.crop(Rect::new(6, 4, 100, 100));
+        assert_eq!((c.width, c.height), (2, 2)); // clamped to the frame edge
+    }
+
+    #[test]
+    fn crop_fully_off_frame_or_empty_returns_full_frame() {
+        let f = frame(8, 6);
+        assert_eq!(f.crop(Rect::new(100, 100, 10, 10)).width, 8); // off-frame
+        assert_eq!(f.crop(Rect::new(0, 0, 0, 0)).width, 8); // empty rect
+    }
+}

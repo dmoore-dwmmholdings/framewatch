@@ -159,3 +159,131 @@ fn encode_webp(_img: &image::DynamicImage) -> Result<Vec<u8>, SinkError> {
         "webp output requires the `webp` feature".into(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::SystemClock;
+    use crate::config::{Config, Target};
+    use crate::engine::Engine;
+    use crate::frame::{RawFrame, WindowInfo};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    /// A test sink that counts events and optionally fails.
+    struct Counter {
+        count: Arc<AtomicUsize>,
+        fail: bool,
+    }
+    impl Sink for Counter {
+        fn on_event(&mut self, _e: &CaptureEvent) -> Result<(), SinkError> {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                Err(SinkError::Disconnected)
+            } else {
+                Ok(())
+            }
+        }
+        fn flush(&mut self) -> Result<(), SinkError> {
+            if self.fail {
+                Err(SinkError::Disconnected)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn frame(w: u32, h: u32, v: u8) -> RawFrame {
+        RawFrame::from_bgra(
+            vec![v; (w * h * 4) as usize],
+            w,
+            h,
+            Instant::now(),
+            chrono::Utc::now(),
+            WindowInfo::synthetic("t", w, h),
+        )
+    }
+
+    fn sample_event() -> CaptureEvent {
+        let cfg = Config::builder()
+            .target(Target::ByExe("x".into()))
+            .build()
+            .unwrap();
+        let mut e = Engine::new(cfg, SystemClock);
+        e.process(&frame(16, 16, 128), Instant::now())[0].clone()
+    }
+
+    #[test]
+    fn composite_fans_out_and_surfaces_first_error() {
+        let a = Arc::new(AtomicUsize::new(0));
+        let b = Arc::new(AtomicUsize::new(0));
+        let mut comp = CompositeSink::new().with(Box::new(Counter {
+            count: a.clone(),
+            fail: false,
+        }));
+        comp.push(Box::new(Counter {
+            count: b.clone(),
+            fail: true,
+        }));
+        let ev = sample_event();
+        assert!(comp.on_event(&ev).is_err());
+        assert!(comp.flush().is_err());
+        // Both children still received the event despite the error.
+        assert_eq!(a.load(Ordering::Relaxed), 1);
+        assert_eq!(b.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn composite_default_ok_when_all_ok() {
+        let a = Arc::new(AtomicUsize::new(0));
+        let mut comp = CompositeSink::default();
+        comp.push(Box::new(Counter {
+            count: a,
+            fail: false,
+        }));
+        assert!(comp.on_event(&sample_event()).is_ok());
+        assert!(comp.flush().is_ok());
+    }
+
+    #[test]
+    fn encode_png_and_scale() {
+        let f = frame(8, 8, 200);
+        let png = encode(
+            &f,
+            &ImageOpts {
+                format: ImageFormat::Png,
+                scale: 1.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(png.format, ImageFormat::Png);
+        assert_eq!((png.width, png.height), (8, 8));
+        assert_eq!(
+            &png.bytes[..8],
+            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        ); // PNG magic
+        let scaled = encode(
+            &f,
+            &ImageOpts {
+                format: ImageFormat::Png,
+                scale: 0.5,
+            },
+        )
+        .unwrap();
+        assert_eq!((scaled.width, scaled.height), (4, 4));
+    }
+
+    #[cfg(not(feature = "webp"))]
+    #[test]
+    fn encode_webp_without_feature_errors() {
+        let r = encode(
+            &frame(8, 8, 50),
+            &ImageOpts {
+                format: ImageFormat::Webp,
+                scale: 1.0,
+            },
+        );
+        assert!(r.is_err());
+    }
+}

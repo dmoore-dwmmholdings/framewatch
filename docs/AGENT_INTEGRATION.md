@@ -30,7 +30,7 @@ wherever you cloned/built this repository.)
 Verify it:
 
 ```sh
-dist\framewatch.exe --version      # -> framewatch 0.1.0
+dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.5.0
 ```
 
 > **Platform.** Live capture is Windows-only (Graphics Capture API), compiled in
@@ -276,7 +276,7 @@ when known).
 ```jsonc
 {
   "session_id": "...",
-  "tool": "framewatch 0.1.0",
+  "tool": "framewatch 0.5.0",
   "target": { "title": "...", "exe": "...", "selected_via": "cli" },
   "started_at": "...Z",
   "ended_at": "...Z",                 // set on clean shutdown
@@ -492,7 +492,7 @@ falls back to video-only automatically.
 ```jsonc
 {
   "session_id": "2026-06-15T00-30-31_game",
-  "tool": "framewatch 0.4.0",
+  "tool": "framewatch 0.5.0",
   "kind": "recording",                         // distinguishes this from a capture session.json
   "target": { "title": "My Game", "exe": "game.exe", "selected_via": "cli" },
   "started_at": "...Z", "ended_at": "...Z",

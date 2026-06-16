@@ -337,7 +337,7 @@ asked. The video lets you see exactly what they were pointing at or referring to
     ));
     s.push_str(
         "- The full narration transcript is inline below. Every line is timestamped in \
-mm:ss,mmm from the start of the video, so each spoken instruction maps to a specific \
+HH:MM:SS,mmm from the start of the video, so each spoken instruction maps to a specific \
 moment on screen.\n\n",
     );
 
@@ -360,7 +360,7 @@ milliseconds; ffmpeg `-ss` takes seconds, so divide by 1000:\n\n",
 timestamp, extract the frame at that timestamp to see which menu.\n\n",
     );
 
-    s.push_str("## Narration transcript (timestamps are mm:ss,mmm from video start)\n");
+    s.push_str("## Narration transcript (timestamps are HH:MM:SS,mmm from video start)\n");
     if transcript.segments.is_empty() {
         s.push_str("_(no narration transcript — rely on the video.)_\n\n");
     } else {
