@@ -16,8 +16,9 @@ test suite (the pure, cross-platform core is now ~100% covered).
 
 - **Opt-in automatic spinner detection (H1).** `watch`/`shot` previously needed a
   hand-drawn `Spinner` ROI to suppress a loading animation; with the new
-  `auto_detect_spinners` config flag (default off), a small, compact cluster of
-  high-change-rate tiles is detected automatically — its churn no longer counts as
+  `auto_detect_spinners` config flag (default off), a small, *connected* cluster
+  of high-change-rate tiles (never overlapping a `Watch` ROI) is detected
+  automatically — its churn no longer counts as
   meaningful change and it drives `busy_start`/`busy_end`, so the window can still
   settle. Tunable via `auto_spinner_max_area` (default `0.05`). Automatic
   *volatile-value* detection still requires an explicit `Volatile` ROI (false
@@ -37,17 +38,24 @@ test suite (the pure, cross-platform core is now ~100% covered).
   the program was launched left it running; `shot`/`record` now wrap the child in
   a kill-on-drop guard so every exit path tears it down.
 - **Config validation hardened (M3).** `validate()` now rejects a non-positive
-  `image.scale`, an oversized `tile_grid` (which could exhaust memory via the
-  volatility ring), out-of-range ROI rects, an out-of-range `auto_spinner_max_area`,
-  and a zero-size `crop`; `watch_with` now calls `validate()` so embedders get the
-  same checks.
+  `image.scale`, an oversized `tile_grid` *or* `volatility_window` × grid product
+  (either could exhaust memory via the volatility ring), out-of-range ROI rects, an
+  out-of-range `auto_spinner_max_area`, and a zero-size `crop`; `watch_with` now
+  calls `validate()` so embedders get the same checks.
 - **`record`: stray temp video on mux failure (N2).** The intermediate
   pre-mux video is now removed on the mux-error path too.
 - **`PROMPT.md` timestamp label (N3).** Said `mm:ss,mmm`; now correctly
   `HH:MM:SS,mmm` (matching the rendered values).
 - **GUI capture-thread lifecycle (L4).** Each preview worker gets its own stop
   flag + join handle (the prior one is stopped and joined before a new selection
-  starts), and `Start watching` is bounded to one concurrent session.
+  starts), and `Start watching` is bounded to one concurrent session. The worker
+  also publishes its backend's stop signal so an *idle* window (no frames) is
+  interrupted instead of hanging the UI on `join()`; the stale preview is cleared
+  when switching windows; and the worker is stopped + joined when the app closes
+  (`Drop`).
+- **`busy.active` now reflects auto-detected spinners.** The metadata field
+  previously reported only hinted-`Spinner` activity, disagreeing with the
+  `busy_start`/`busy_end` events an auto-detected spinner emits.
 
 ### Changed
 
@@ -61,6 +69,10 @@ test suite (the pure, cross-platform core is now ~100% covered).
 - `--title` matching documented as a case-insensitive literal substring; the
   `tokenize` (launch/transcribe) limitations (no escaping; backslashes literal)
   are now documented (N4).
+- **CI third-party actions pinned to commit SHAs.** `checkout`, `rust-toolchain`,
+  and `rust-cache` are pinned by full SHA (tag in a trailing comment) with
+  `persist-credentials: false` on checkout, so a re-tagged or compromised release
+  can't change what CI runs.
 
 ## [0.4.1] - 2026-06-15
 

@@ -16,6 +16,11 @@ const PREVIEW_MAX_W: u32 = 720;
 struct Shared {
     latest: Mutex<Option<RawFrame>>,
     stop: AtomicBool,
+    /// The backend's own stop flag, published by the worker once it starts so
+    /// `stop_preview` can interrupt an *idle* window (which delivers no frames,
+    /// so the `run` callback that polls `stop` never fires). `None` until the
+    /// worker has registered it.
+    backend_stop: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 struct DragState {
@@ -58,6 +63,7 @@ impl FrameWatchApp {
             shared: Arc::new(Shared {
                 latest: Mutex::new(None),
                 stop: AtomicBool::new(false),
+                backend_stop: Mutex::new(None),
             }),
             capture_running: false,
             preview_handle: None,
@@ -88,11 +94,17 @@ impl FrameWatchApp {
         // Stop and join the prior worker first, then give the new one its *own*
         // Shared so the two can never race on `latest`/`stop`.
         self.stop_preview();
+        // Drop the previous window's preview so its stale image isn't shown (and
+        // ROI edits aren't made against it) while the new backend spins up — or
+        // forever, if the new backend fails to start.
+        self.texture = None;
+        self.drag = None;
         let mut cfg = self.config.clone();
         cfg.target = Target::ByHwnd(hwnd);
         let shared = Arc::new(Shared {
             latest: Mutex::new(None),
             stop: AtomicBool::new(false),
+            backend_stop: Mutex::new(None),
         });
         self.shared = shared.clone();
 
@@ -101,6 +113,19 @@ impl FrameWatchApp {
                 Ok(b) => b,
                 Err(_) => return,
             };
+            // Publish the backend's stop flag so `stop_preview` can interrupt an
+            // idle window. Hold the lock across the `stop` check + store so we
+            // serialize with `stop_preview` (which sets `stop` *before* locking):
+            // either we observe its request and bail, or it sees our signal and
+            // trips it — never a lost wakeup that would hang `join()`.
+            if let Some(signal) = backend.stop_signal() {
+                if let Ok(mut slot) = shared.backend_stop.lock() {
+                    if shared.stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    *slot = Some(signal);
+                }
+            }
             let _ = backend.run(&mut |frame| {
                 if let Ok(mut slot) = shared.latest.lock() {
                     *slot = Some(frame);
@@ -118,6 +143,13 @@ impl FrameWatchApp {
 
     fn stop_preview(&mut self) {
         self.shared.stop.store(true, Ordering::Relaxed);
+        // Trip the backend's own flag too: an idle window delivers no frames, so
+        // the `run` callback (which is what polls `stop`) may never run.
+        if let Ok(slot) = self.shared.backend_stop.lock() {
+            if let Some(signal) = slot.as_ref() {
+                signal.store(true, Ordering::Relaxed);
+            }
+        }
         if let Some(handle) = self.preview_handle.take() {
             let _ = handle.join();
         }
@@ -265,6 +297,14 @@ impl FrameWatchApp {
                 }
             }
         }
+    }
+}
+
+impl Drop for FrameWatchApp {
+    fn drop(&mut self) {
+        // Signal and join the preview worker on window close so we don't abandon
+        // the capture thread (or, with an idle window, leave it spinning).
+        self.stop_preview();
     }
 }
 

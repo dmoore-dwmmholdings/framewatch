@@ -269,7 +269,8 @@ pub struct CaptureMeta {
     /// Relative path to the saved image, or `None` for image-less events.
     ///
     /// Set by [`DirectorySink`](crate::sink::DirectorySink) when it writes the
-    /// PNG; the engine emits `None` here (the encoded bytes live on
+    /// encoded image file (format per `config.image.format` — PNG/JPEG/WebP); the
+    /// engine emits `None` here (the encoded bytes live on
     /// [`CaptureEvent::image`]) so direct consumers read the bytes, not a path.
     pub image: Option<String>,
     /// Window metadata.

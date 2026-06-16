@@ -22,6 +22,8 @@ pub struct RegionState {
 pub struct Volatility {
     window: u16,
     busy_threshold: f32,
+    cols: usize,
+    rows: usize,
     num_tiles: usize,
     /// Flattened ring: `ring[slot * num_tiles + tile]`.
     ring: Vec<bool>,
@@ -49,19 +51,23 @@ impl Volatility {
     /// Create a tracker for `num_tiles` tiles.
     ///
     /// `auto_spinner` enables automatic detection of a small, compact cluster of
-    /// high-change-rate tiles (covering at most `auto_max_area` of the frame) as
-    /// a spinner, with no ROI hint.
+    /// high-change-rate tiles (covering at most `auto_max_area` of the frame and
+    /// forming a single connected cluster) as a spinner, with no ROI hint.
     pub fn new(
         window: u16,
         busy_threshold: f32,
-        num_tiles: usize,
+        cols: usize,
+        rows: usize,
         auto_spinner: bool,
         auto_max_area: f32,
     ) -> Self {
         let window = window.max(1);
+        let num_tiles = cols * rows;
         Self {
             window,
             busy_threshold,
+            cols,
+            rows,
             num_tiles,
             ring: vec![false; window as usize * num_tiles],
             ones: vec![0u16; num_tiles],
@@ -176,8 +182,12 @@ impl Volatility {
         }
         let mut hot = 0usize;
         for t in 0..self.num_tiles {
+            // Exclude Watch tiles: `Engine::meaningful` drops `auto_excluded`
+            // tiles *before* the `is_watch` check, so auto-excluding a watch tile
+            // would silently swallow the very change the user asked to be told about.
             let is_hot = self.tile_change_rate(t) >= self.busy_threshold
                 && !roi.is_excluded(t)
+                && !roi.is_watch(t)
                 && !roi.ignore_mask().get(t);
             self.auto_excluded[t] = is_hot;
             if is_hot {
@@ -185,8 +195,11 @@ impl Volatility {
             }
         }
         let area = hot as f32 / self.num_tiles.max(1) as f32;
-        // A spinner is a *small* churning cluster; larger churn is real content.
-        let is_spinner = hot > 0 && area <= self.auto_max_area;
+        // A spinner is a *small, connected* churning cluster; larger churn is
+        // real content, and hot tiles scattered across the frame (small in total
+        // area but spatially dispersed) are content too — not a spinner.
+        let is_spinner =
+            hot > 0 && area <= self.auto_max_area && self.largest_hot_component() == hot;
         if !is_spinner {
             for b in self.auto_excluded.iter_mut() {
                 *b = false;
@@ -197,6 +210,49 @@ impl Volatility {
         self.auto_rising = is_spinner && !prev;
         self.auto_falling = !is_spinner && prev;
         self.auto_busy_prev = is_spinner;
+    }
+
+    /// Size of the largest 4-connected cluster of currently-hot
+    /// (`auto_excluded`) tiles. A genuine spinner is one contiguous blob, so
+    /// when this is less than the total hot count the churn is spatially
+    /// scattered and must not be treated as a spinner.
+    fn largest_hot_component(&self) -> usize {
+        let (cols, rows) = (self.cols, self.rows);
+        let mut visited = vec![false; self.num_tiles];
+        let mut stack: Vec<usize> = Vec::new();
+        let mut best = 0usize;
+        for start in 0..self.num_tiles {
+            if !self.auto_excluded[start] || visited[start] {
+                continue;
+            }
+            let mut size = 0usize;
+            visited[start] = true;
+            stack.push(start);
+            while let Some(t) = stack.pop() {
+                size += 1;
+                let (c, r) = (t % cols, t / cols);
+                let mut visit = |n: usize, stack: &mut Vec<usize>| {
+                    if self.auto_excluded[n] && !visited[n] {
+                        visited[n] = true;
+                        stack.push(n);
+                    }
+                };
+                if c > 0 {
+                    visit(t - 1, &mut stack);
+                }
+                if c + 1 < cols {
+                    visit(t + 1, &mut stack);
+                }
+                if r > 0 {
+                    visit(t - cols, &mut stack);
+                }
+                if r + 1 < rows {
+                    visit(t + cols, &mut stack);
+                }
+            }
+            best = best.max(size);
+        }
+        best
     }
 
     /// Whether tile `idx` belongs to the current auto-detected spinner.

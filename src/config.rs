@@ -258,6 +258,19 @@ impl Config {
                 "tile_grid {cols}x{rows} is too large (max 512x512)"
             )));
         }
+        // The volatility ring allocates `window * cols * rows` bools, so bound
+        // the *product* too: a 512x512 grid is in range but a huge window still
+        // exhausts memory at engine construction.
+        let ring_cells = (cols as usize)
+            .checked_mul(rows as usize)
+            .and_then(|t| t.checked_mul(self.volatility_window.max(1) as usize))
+            .ok_or_else(|| Error::Config("volatility ring size overflows usize".into()))?;
+        const MAX_RING_CELLS: usize = 16 * 1024 * 1024; // ~16 MiB of bools
+        if ring_cells > MAX_RING_CELLS {
+            return Err(Error::Config(format!(
+                "volatility_window * tile_grid is too large ({ring_cells} cells, max {MAX_RING_CELLS})"
+            )));
+        }
         if !(self.image.scale.is_finite() && self.image.scale > 0.0) {
             return Err(Error::Config(format!(
                 "image.scale must be a positive number (got {})",
@@ -565,6 +578,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_oversized_volatility_ring() {
+        // Each dimension is individually in range, but the ring (window * tiles)
+        // is not — this must still be rejected before it allocates.
+        let mut c = base();
+        c.tile_grid = (512, 512);
+        c.volatility_window = 1024;
+        assert!(c.validate().is_err());
+
+        // A sane window over the same grid is fine.
+        let mut ok = base();
+        ok.tile_grid = (512, 512);
+        ok.volatility_window = 32;
+        assert!(ok.validate().is_ok());
+    }
+
+    #[test]
     fn rejects_out_of_range_roi() {
         let roi = |rect_norm| RoiHint {
             kind: RoiKind::Spinner,
@@ -684,7 +713,16 @@ mod tests {
 
     #[test]
     fn from_toml_path_reads_a_file() {
-        let p = std::env::temp_dir().join("fw_cfg_roundtrip_test.toml");
+        // Unique per process + call so parallel test runs can't collide on a
+        // shared temp file.
+        let p = std::env::temp_dir().join(format!(
+            "fw_cfg_roundtrip_test_{}_{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
         std::fs::write(&p, "settle_ms = 999\ntarget = { exe = \"a.exe\" }\n").unwrap();
         let cfg = Config::from_toml_path(&p).unwrap();
         assert_eq!(cfg.settle_ms, 999);

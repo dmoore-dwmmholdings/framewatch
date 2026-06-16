@@ -62,7 +62,8 @@ impl<C: Clock> Engine<C> {
         let vol = Volatility::new(
             cfg.volatility_window,
             cfg.busy_rate_threshold,
-            cols as usize * rows as usize,
+            cols as usize,
+            rows as usize,
             cfg.auto_detect_spinners,
             cfg.auto_spinner_max_area,
         );
@@ -491,7 +492,9 @@ impl<C: Clock> Engine<C> {
         };
 
         let busy = BusyMeta {
-            active: self.vol.any_busy(),
+            // Include auto-detected spinners: they drive busy edges too, so the
+            // metadata must agree with the emitted `BusyStart`/`BusyEnd`.
+            active: self.vol.any_busy() || self.vol.auto_busy(),
             regions: regions
                 .iter()
                 .map(|r| RegionMeta {

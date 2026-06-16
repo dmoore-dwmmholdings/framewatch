@@ -492,7 +492,7 @@ falls back to video-only automatically.
 ```jsonc
 {
   "session_id": "2026-06-15T00-30-31_game",
-  "tool": "framewatch 0.4.0",
+  "tool": "framewatch 0.5.0",
   "kind": "recording",                         // distinguishes this from a capture session.json
   "target": { "title": "My Game", "exe": "game.exe", "selected_via": "cli" },
   "started_at": "...Z", "ended_at": "...Z",

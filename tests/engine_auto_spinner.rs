@@ -59,6 +59,39 @@ fn auto_spinner_collapses_to_busy_then_settled() {
 }
 
 #[test]
+fn scattered_churn_is_not_an_auto_spinner() {
+    // Two separate oscillating tiles in opposite corners: small in *total* area
+    // but spatially dispersed. The connectivity gate must reject them even with a
+    // generous area cap (the total-area check alone would let them through).
+    let mut cfg = base_config(true);
+    cfg.auto_spinner_max_area = 0.5;
+    let mut engine = Engine::new(cfg, SystemClock);
+    let base = base_instant();
+    let mut kinds = Vec::new();
+
+    let (f0, t0) = frame_at(solid(128, 128, 128), base, 0);
+    kinds.extend(engine.process(&f0, t0).iter().map(|e| e.kind()));
+
+    for i in 1..=14u64 {
+        let mut buf = solid(128, 128, 128);
+        let v = if i % 2 == 1 { 255 } else { 0 };
+        paint_rect(&mut buf, 0, 0, 10, 10, v, v, v); // top-left tile
+        paint_rect(&mut buf, W - 10, H - 10, 10, 10, v, v, v); // bottom-right tile
+        let (f, t) = frame_at(buf, base, i * 33);
+        kinds.extend(engine.process(&f, t).iter().map(|e| e.kind()));
+    }
+
+    let busy = kinds
+        .iter()
+        .filter(|k| matches!(k, EventKind::BusyStart | EventKind::BusyEnd))
+        .count();
+    assert_eq!(
+        busy, 0,
+        "dispersed churn must not be classified as a spinner: {kinds:?}"
+    );
+}
+
+#[test]
 fn without_auto_detection_no_busy_edges() {
     let kinds = run(base_config(false));
     let busy = kinds
