@@ -78,15 +78,35 @@ impl FrameWatchApp {
     }
 
     fn refresh_windows(&mut self) {
+        // `selected` is an index into the *old* `windows`; remember the actual
+        // window (by hwnd) so we can re-find it in the new list. Otherwise a
+        // refresh that shrinks or reorders the list would leave `selected`
+        // pointing at the wrong window — or out of bounds, panicking the next
+        // `start_watching` / `save_rois_per_user`.
+        let prev_hwnd = self
+            .selected
+            .and_then(|idx| self.windows.get(idx))
+            .map(|w| w.hwnd);
         match crate::enumerate_windows() {
             Ok(list) => {
                 self.windows = list;
+                self.selected =
+                    prev_hwnd.and_then(|h| self.windows.iter().position(|w| w.hwnd == h));
                 self.status = format!("{} capturable windows.", self.windows.len());
             }
             Err(e) => {
                 self.windows.clear();
+                self.selected = None;
                 self.status = format!("Enumeration unavailable: {e}");
             }
+        }
+        // The selected window is gone (vanished or enumeration failed): tear down
+        // its now-orphaned preview and drop the stale image so ROI edits can't
+        // land on it.
+        if prev_hwnd.is_some() && self.selected.is_none() {
+            self.stop_preview();
+            self.texture = None;
+            self.drag = None;
         }
     }
 

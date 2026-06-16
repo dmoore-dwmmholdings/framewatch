@@ -52,7 +52,9 @@ test suite (the pure, cross-platform core is now ~100% covered).
   also publishes its backend's stop signal so an *idle* window (no frames) is
   interrupted instead of hanging the UI on `join()`; the stale preview is cleared
   when switching windows; and the worker is stopped + joined when the app closes
-  (`Drop`).
+  (`Drop`). Refreshing the window list now reconciles the current selection by
+  window handle (dropping it, and its preview, if the window vanished) so a
+  shrunk/reordered list can't panic `start_watching` / `save_rois_per_user`.
 - **`busy.active` now reflects auto-detected spinners.** The metadata field
   previously reported only hinted-`Spinner` activity, disagreeing with the
   `busy_start`/`busy_end` events an auto-detected spinner emits.
