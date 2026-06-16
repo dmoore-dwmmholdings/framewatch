@@ -59,9 +59,9 @@ test suite (the pure, cross-platform core is now ~100% covered).
 
 ### Changed
 
-- **MSRV is now `1.85`** — the floor the locked dependency tree actually requires
-  (edition2024), replacing the untested `1.78` claim. A CI job builds on exactly
-  the declared MSRV so it can't drift (M1).
+- **MSRV is now `1.88`** — the floor the locked dependency tree actually requires
+  (`image` 0.25 needs 1.88, `image_hasher` 3.1 needs 1.87), replacing the untested
+  `1.78` claim. A CI job builds on exactly the declared MSRV so it can't drift (M1).
 - **Packaging/docs hygiene (M2).** The published crate now ships
   `dist/framewatch.json` and the sample packages the agent docs link to (only the
   large prebuilt binary is excluded); stale `framewatch 0.1.0` version strings and
