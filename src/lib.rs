@@ -56,6 +56,8 @@ pub mod recording;
 pub mod session;
 pub mod sink;
 pub mod transcript;
+#[cfg(feature = "record")]
+mod whisper;
 
 mod util;
 
@@ -78,11 +80,13 @@ pub use error::{CaptureError, Error, RecordError, SinkError, TranscribeError};
 pub use event::{CaptureEvent, CaptureMeta, EncodedImage, EventKind, ImageFormat, SaveMask};
 pub use frame::{RawFrame, Rect, WindowInfo};
 #[cfg(feature = "record")]
-pub use record::{record, RecordConfig, RecordOutcome};
+pub use record::{record, record_with_duration, RecordConfig, RecordOutcome};
 pub use recording::{PackageWriter, Recording, RecordingManifest};
 pub use sink::{ChannelSink, CompositeSink, DirectorySink, Sink};
 pub use transcript::{Transcriber, Transcript, TranscriptSegment};
 pub use util::tokenize;
+#[cfg(feature = "record")]
+pub use whisper::{ensure_managed_whisper, ManagedWhisper, WHISPER_MODEL, WHISPER_VERSION};
 
 /// Construct the platform default capture backend for `config`.
 ///

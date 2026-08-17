@@ -15,9 +15,32 @@ lives in [`dist/sample-session/`](../dist/sample-session).
 
 ---
 
+## Codex-native integration
+
+The repository ships a Codex skill at
+[`../.agents/skills/framewatch/SKILL.md`](../.agents/skills/framewatch/SKILL.md).
+Codex discovers repository skills under `.agents/skills`, so the workflow is
+available automatically when Codex opens this checkout. Invoke it explicitly as
+`$framewatch` or ask Codex to capture, inspect, or record a Windows application
+window.
+
+For use from a different repository:
+
+1. Put a current `framewatch.exe` on `PATH` (or give Codex its absolute path),
+   then verify `framewatch --version` and the required subcommand's `--help`.
+2. Copy `.agents/skills/framewatch/` into the target repository at the same
+   relative path. For a skill available in every repository, copy it to
+   `~/.agents/skills/framewatch/` instead.
+3. Start a new Codex task if the skill does not appear immediately.
+
+The root [`../AGENTS.md`](../AGENTS.md) is contributor guidance for working on
+Framewatch itself; the skill is the reusable integration for operating the tool.
+
+---
+
 ## 0. Where the binary is
 
-After a release build (`cargo build --release --features "cli wgc gui"`), the
+After a release build (`cargo build --release --features "cli wgc gui record"`), the
 binary is copied to:
 
 ```
@@ -30,7 +53,7 @@ wherever you cloned/built this repository.)
 Verify it:
 
 ```sh
-dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.5.0
+dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.6.0
 ```
 
 > **Platform.** Live capture is Windows-only (Graphics Capture API), compiled in
@@ -276,7 +299,7 @@ when known).
 ```jsonc
 {
   "session_id": "...",
-  "tool": "framewatch 0.5.0",
+  "tool": "framewatch 0.6.0",
   "target": { "title": "...", "exe": "...", "selected_via": "cli" },
   "started_at": "...Z",
   "ended_at": "...Z",                 // set on clean shutdown
@@ -412,7 +435,7 @@ dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --tim
 dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
 
 # record a window to video while narrating, then bundle an LLM package (see §6):
-dist\framewatch.exe record --title "My Game" --duration 60 --transcribe-cmd "whisper-cli -m m.bin -f {audio} -osrt -of {output}"
+dist\framewatch.exe record --title "My Game" --duration 60
 
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"
@@ -428,11 +451,27 @@ it **continuously records** one window to video while the user narrates into the
 microphone, then transcribes the narration locally and writes a package an LLM
 can act on. Build with `--features "wgc record"`; **`ffmpeg` must be on PATH**.
 
+For a crates.io installation that includes this subcommand, use:
+
 ```sh
-# Record until Ctrl+C (or --duration), transcribing with a local transcriber
-# ({audio}/{output} are substituted):
+cargo install framewatch --features "wgc record"
+framewatch transcriber setup   # optional preflight; record also provisions automatically
+```
+
+No separate speech-to-text setup is required. The first recording that needs a
+transcript automatically downloads the pinned whisper.cpp runtime and `base.en`
+model (~150 MiB) into the user cache, verifies SHA-256 checksums, and reuses them
+for later recordings. Set `FRAMEWATCH_WHISPER_DIR` to override the cache parent,
+use `--no-transcribe` to skip setup/transcription, or use `--transcribe-cmd` to
+override the managed engine.
+
+```sh
+# Record until Ctrl+C (or --duration), transcribing with managed Whisper:
+dist\framewatch.exe record --title "My Game" --duration 60 --out ./.framewatch
+
+# Or override it with another local command ({audio}/{output} are substituted):
 dist\framewatch.exe record --title "My Game" --duration 60 \
-  --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}" --out ./.framewatch
+  --transcribe-cmd "other-transcriber -f {audio} -o {output}"
 
 # Or skip transcription (video + audio only):
 dist\framewatch.exe record --pid 41234 --no-transcribe
@@ -444,6 +483,13 @@ and `--duration` behave exactly as in `watch`/`shot`. Extra options: `--fps`
 video-only), and the transcription choices above. Stop with **Ctrl+C** (the mp4
 is finalized cleanly) or `--duration`. If no microphone is available, recording
 falls back to video-only automatically.
+
+For `record`, `--duration` is measured from encoder startup, after the target
+window resolves and its first frame arrives; `--wait` time does not consume the
+requested recording duration. Odd window/crop dimensions are padded by one pixel
+when needed so H.264/yuv420p output always has even dimensions.
+`record --launch` waits up to 15 seconds for the launched window by default;
+an explicit `--wait` or nonzero config `wait_ms` overrides that default.
 
 ### 6.1 Package layout
 
@@ -492,7 +538,7 @@ falls back to video-only automatically.
 ```jsonc
 {
   "session_id": "2026-06-15T00-30-31_game",
-  "tool": "framewatch 0.5.0",
+  "tool": "framewatch 0.6.0",
   "kind": "recording",                         // distinguishes this from a capture session.json
   "target": { "title": "My Game", "exe": "game.exe", "selected_via": "cli" },
   "started_at": "...Z", "ended_at": "...Z",
@@ -501,8 +547,8 @@ falls back to video-only automatically.
   // "audio" is omitted entirely for a video-only recording (no microphone):
   "audio": { "path": "audio.wav", "sample_rate": 48000, "channels": 1, "duration_ms": 64300 },
   "transcript": { "path": "transcript.json", "srt": "transcript.srt",
-                  "engine": "command",         // "command" | "none"
-                  "model": "whisper-cli -m … -f {audio} …", "segment_count": 2, "language": "en" },
+                  "engine": "whisper.cpp",     // "whisper.cpp" | "command" | "none"
+                  "model": "base.en", "segment_count": 2, "language": "en" },
   "artifacts": ["recording.mp4","audio.wav","transcript.json","transcript.srt",
                 "recording.json","PROMPT.md","README_FOR_AGENT.md"]
 }
@@ -512,12 +558,13 @@ falls back to video-only automatically.
 
 | Choice | Flag | Needs |
 |---|---|---|
-| External command | `--transcribe-cmd "<cmd>"` | any local transcriber on PATH (e.g. whisper.cpp's prebuilt `whisper-cli`) |
+| Managed Whisper (default) | _(none)_ | first-use HTTPS download (~150 MiB), then local cache |
+| External override | `--transcribe-cmd "<cmd>"` | any compatible local transcriber |
 | None | `--no-transcribe` | — (empty transcript; video + audio only) |
 
-framewatch bundles no speech-to-text engine — transcription is always done by
-shelling out via `--transcribe-cmd`, so there's nothing to compile and any
-transcriber works.
+The managed runtime/model are pinned and checksum-verified before use. They are
+downloaded rather than embedded in the crate, keeping `cargo install` small while
+making the default recording workflow self-configuring.
 
 There is no microphone, or you don't want one? Recording is video-only then: it
 warns and writes a package with no `audio.wav` and an empty transcript (and the

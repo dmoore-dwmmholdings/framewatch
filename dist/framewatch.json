@@ -1,8 +1,13 @@
 {
   "tool": "framewatch",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents; plus a `record` mode that bundles a narrated screen recording + timestamped transcript into an LLM package.",
   "docs": "docs/AGENT_INTEGRATION.md",
+  "codex": {
+    "skill": ".agents/skills/framewatch/SKILL.md",
+    "invoke": "$framewatch",
+    "discovery": "Codex discovers this skill automatically in the Framewatch checkout. Copy .agents/skills/framewatch into another repository, or ~/.agents/skills/framewatch for user-wide use. Ensure a current framewatch.exe is on PATH; the skill verifies its version and required subcommand before capture."
+  },
   "sample_session": "dist/sample-session",
   "sample_recording": "dist/sample-recording",
   "binary": {
@@ -72,7 +77,7 @@
     },
     {
       "name": "record",
-      "summary": "Continuously record a window to video while narrating into the mic, transcribe locally, and write an LLM package (video + timestamped transcript + prompt). Requires the `record` feature and ffmpeg on PATH.",
+      "summary": "Continuously record a window to video while narrating into the mic, transcribe locally with automatically provisioned managed Whisper, and write an LLM package (video + timestamped transcript + prompt). Requires the `record` feature and ffmpeg on PATH; first transcription downloads about 150 MiB into the user cache.",
       "invoke": "framewatch.exe record <selector|--launch \"<cmd>\"> [--out <dir>] [--duration <secs>] [--fps <n>] [--mic <name>] [--roi X,Y,W,H] [--transcribe-cmd \"<cmd>\" | --no-transcribe | --no-audio]",
       "blocking": true,
       "stop": "Ctrl+C (mp4 is finalized cleanly), or after --duration",
@@ -85,17 +90,33 @@
       },
       "options": {
         "--out": "output parent directory (a per-recording subdir is created)",
-        "--duration": "auto-stop after N seconds (otherwise record until Ctrl+C)",
+        "--duration": "auto-stop after N seconds measured from encoder startup, after target resolution and the first frame (otherwise record until Ctrl+C)",
         "--fps": "target video frames per second (default 30, clamped 1..=60)",
         "--mic": "microphone device name substring (default: system default input)",
         "--no-audio": "record video only (no microphone / transcription); also the automatic fallback when no input device is available",
         "--roi": "crop the recorded region to a pixel rect X,Y,W,H",
-        "--wait": "wait up to N seconds for the target window to appear",
-        "--transcribe-cmd": "transcribe by shelling out to a local transcriber; {audio}/{output} substituted; command emits framewatch JSON or SRT",
-        "--no-transcribe": "record video + audio only (empty transcript)"
+        "--wait": "wait up to N seconds for the target window to appear; --launch defaults to 15 seconds when neither this option nor a config wait is set",
+        "--transcribe-cmd": "override managed Whisper by shelling out to a local transcriber; {audio}/{output} substituted; command emits framewatch JSON or SRT",
+        "--no-transcribe": "record video + audio only (empty transcript); skips managed Whisper setup/download"
+      },
+      "managed_transcription": {
+        "engine": "whisper.cpp",
+        "version": "1.9.2",
+        "model": "base.en",
+        "first_use_download_bytes_approx": 157000000,
+        "cache_override_env": "FRAMEWATCH_WHISPER_DIR",
+        "runtime_sha256": "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
+        "model_sha256": "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
       },
       "stdout": "first line: the package directory; last line: the PROMPT.md path",
-      "example": "framewatch.exe record --title \"My Game\" --duration 60 --transcribe-cmd \"whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}\""
+      "example": "framewatch.exe record --title \"My Game\" --duration 60"
+    },
+    {
+      "name": "transcriber setup",
+      "summary": "Pre-download, checksum-verify, and validate the managed whisper.cpp runtime and base.en model. Optional because record performs the same setup automatically on first use.",
+      "invoke": "framewatch.exe transcriber setup",
+      "blocking": true,
+      "stdout": "absolute whisper_cli and model paths"
     },
     {
       "name": "gui",
@@ -174,6 +195,7 @@
     "live_capture_features": ["wgc"],
     "entry_points": [
       "framewatch::watch(config, sink)",
+      "framewatch::record_with_duration(config, duration)",
       "framewatch::default_backend(&config)",
       "framewatch::enumerate_windows()",
       "framewatch::Engine::process(&frame, now)",

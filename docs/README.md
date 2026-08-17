@@ -9,6 +9,8 @@ capture that emits timestamped screenshots + metadata for AI agents.
 |---|---|
 | [Project README](../README.md) | Understand what framewatch is, why it exists, install it, and see the feature matrix. |
 | [Agent Integration Guide](AGENT_INTEGRATION.md) | Have another project or AI agent **call** framewatch — exact commands, flags, the output/JSON contract, and the embedding API. |
+| [Codex skill](../.agents/skills/framewatch/SKILL.md) | Let Codex discover Framewatch as a native capture, inspection, and recording workflow. |
+| [Recording test app](RECORD_TEST_APP.md) | Run a bounded narrated recording against a native UI with planted visual defects. |
 | [`dist/framewatch.json`](../dist/framewatch.json) | Parse a **machine-readable** manifest of the binary path, commands, and output schema. |
 | [`dist/sample-session/`](../dist/sample-session) | See a **real example** of one capture's output (`timeline.jsonl`, `session.json`, frames). |
 | [Specification](../framewatch-spec.md) | Understand the design, architecture, and rationale in depth. |

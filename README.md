@@ -49,11 +49,33 @@ timestamped, agent-readable artifacts** in one importable package:
 > where/how-to-call contract, and [`dist/framewatch.json`](dist/framewatch.json)
 > for a machine-readable manifest.
 
+### Codex integration
+
+This repository includes both Codex-native discovery layers:
+
+- [`AGENTS.md`](AGENTS.md) gives Codex the project architecture, public-contract
+  rules, and verification commands when it works on Framewatch itself.
+- [`.agents/skills/framewatch/SKILL.md`](.agents/skills/framewatch/SKILL.md)
+  teaches Codex when to use `shot`, `watch`, or `record`, and how to consume the
+  resulting artifacts. Codex discovers the skill automatically in this checkout;
+  invoke it explicitly with `$framewatch` or let it trigger for desktop UI
+  capture tasks.
+
+To use the skill from another repository, ensure a current `framewatch.exe` is
+on `PATH` and copy the `framewatch` skill directory into that repository's
+`.agents/skills/` directory (or into your user-level `~/.agents/skills/`). See
+the [Codex skill documentation](https://developers.openai.com/codex/skills) for
+skill discovery details.
+
 ## Install
 
 ```sh
 # CLI (Windows live capture):
 cargo install framewatch --features wgc        # add gui for the picker: --features "wgc gui"
+
+# CLI with narrated recording (also enables wgc; requires ffmpeg on PATH):
+cargo install framewatch --features "wgc record"
+framewatch transcriber setup   # optional preflight; record also runs this automatically
 
 # As a library (engine + sinks only, no clap/egui):
 cargo add framewatch --no-default-features
@@ -83,16 +105,16 @@ framewatch watch --config framewatch.toml
 ## Record & narrate → an LLM package (V4)
 
 Sometimes you don't want a deduped story — you want to *show and tell*. The
-`record` subcommand (build with `--features "wgc record"`, needs `ffmpeg` on
+`record` subcommand (install with `--features "wgc record"`, needs `ffmpeg` on
 PATH) **continuously** records one window to video while you narrate into the
 microphone, then transcribes the narration locally and bundles everything an LLM
-needs to act on it:
+needs to act on it. On first use, Framewatch automatically downloads a pinned,
+checksum-verified whisper.cpp runtime and `base.en` model (~150 MiB) into the
+user cache; later recordings reuse it:
 
 ```sh
-# Record a window for 60s (or stop early with Ctrl+C) while you talk, and
-# transcribe the narration with any local transcriber via --transcribe-cmd:
-framewatch record --title "My Game" --duration 60 \
-    --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}"
+# Record a window for 60s (or stop early with Ctrl+C) while you talk.
+framewatch record --title "My Game" --duration 60
 ```
 
 It writes a package directory:
@@ -112,12 +134,13 @@ model can correlate "click *this*" with the exact on-screen moment — ingesting
 `ffmpeg -ss <seconds> -i recording.mp4 -frames:v 1 frame.png`. See the
 [recording-package contract](docs/AGENT_INTEGRATION.md#6-recording-packages-record).
 
-> **Transcription** is done by `--transcribe-cmd`: framewatch shells out to a
-> local transcriber you already have — whisper.cpp's prebuilt `whisper-cli`,
-> `faster-whisper`, `openai-whisper`, etc. `{audio}` and `{output}` are
-> substituted; the command writes framewatch transcript JSON or SRT. framewatch
-> bundles no speech-to-text engine, so it stays light and there's nothing to
-> compile.
+> **Transcription** uses managed whisper.cpp by default. Use `--no-transcribe`
+> for an audio-only package with no model download. Advanced users can override
+> the engine with `--transcribe-cmd`; `{audio}` and `{output}` are substituted
+> and the command writes framewatch transcript JSON or SRT. Set
+> `FRAMEWATCH_WHISPER_DIR` to change the managed cache parent. The runtime and
+> model are downloaded rather than embedded in the crate, keeping installation
+> small while making the default workflow self-configuring.
 >
 > **No microphone?** Recording degrades gracefully — it warns and produces a
 > **video-only** package (no transcript). Pass `--no-audio` to opt out of mic

@@ -6,15 +6,18 @@
 //! the recording — the same clock as the video — so a consumer can map a spoken
 //! instruction to the exact moment it refers to in `recording.mp4`.
 //!
-//! framewatch bundles no speech-to-text engine: transcription is done by
-//! shelling out to a local transcriber via `--transcribe-cmd` (see
-//! [`Transcriber`]). Everything here — the types and the SRT/JSON
-//! formatting/parsing — is pure and cross-platform, exercised on every CI target.
+//! With the `record` feature, the CLI can provision a pinned whisper.cpp runtime
+//! and model into the user cache. Callers may also shell out to their own local
+//! transcriber via `--transcribe-cmd` (see [`Transcriber`]). Everything here —
+//! the types and SRT/JSON formatting/parsing — is pure and cross-platform,
+//! exercised on every CI target.
 
 use crate::error::TranscribeError;
 use crate::util::tokenize;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+#[cfg(feature = "record")]
+use std::path::PathBuf;
 
 /// One spoken span. `start_ms`/`end_ms` are milliseconds from the start of the
 /// recording (the same clock as the video), so a consumer can seek the video to
@@ -142,11 +145,19 @@ fn parse_srt_timestamp(s: &str) -> Option<u64> {
 
 /// How a recording's voice narration is turned into a [`Transcript`].
 ///
-/// framewatch does not bundle a speech-to-text engine; local transcription is
-/// done by shelling out to one you have ([`Command`](Transcriber::Command)),
-/// e.g. whisper.cpp's prebuilt `whisper-cli`.
+/// The CLI defaults to a managed, pinned whisper.cpp installation when built
+/// with `record`. [`Command`](Transcriber::Command) remains available for any
+/// compatible external transcriber.
 #[derive(Debug, Clone)]
 pub enum Transcriber {
+    /// Use the managed whisper.cpp runtime and model provisioned by Framewatch.
+    #[cfg(feature = "record")]
+    ManagedWhisper {
+        /// Absolute path to `whisper-cli` / `whisper-cli.exe`.
+        executable: PathBuf,
+        /// Absolute path to the GGML Whisper model.
+        model: PathBuf,
+    },
     /// Shell out to an external transcriber, run over `audio.wav`.
     ///
     /// The template is tokenized (quotes group args); `{audio}` is replaced with
@@ -166,6 +177,10 @@ impl Transcriber {
     /// A `(engine, model)` label pair recorded in the package manifest.
     pub fn engine_meta(&self) -> (&'static str, Option<String>) {
         match self {
+            #[cfg(feature = "record")]
+            Transcriber::ManagedWhisper { .. } => {
+                ("whisper.cpp", Some(crate::whisper::WHISPER_MODEL.into()))
+            }
             Transcriber::Command { template } => ("command", Some(template.clone())),
             Transcriber::Disabled => ("none", None),
         }
@@ -178,10 +193,29 @@ impl Transcriber {
         work_dir: &Path,
     ) -> Result<Transcript, TranscribeError> {
         match self {
+            #[cfg(feature = "record")]
+            Transcriber::ManagedWhisper { executable, model } => {
+                transcribe_managed_whisper(executable, model, audio_wav, work_dir)
+            }
             Transcriber::Disabled => Ok(Transcript::default()),
             Transcriber::Command { template } => transcribe_command(template, audio_wav, work_dir),
         }
     }
+}
+
+#[cfg(feature = "record")]
+fn transcribe_managed_whisper(
+    executable: &Path,
+    model: &Path,
+    audio_wav: &Path,
+    work_dir: &Path,
+) -> Result<Transcript, TranscribeError> {
+    let template = format!(
+        "\"{}\" -m \"{}\" -f \"{{audio}}\" -l en -osrt -of \"{{output}}\" -np",
+        executable.display(),
+        model.display()
+    );
+    transcribe_command(&template, audio_wav, work_dir)
 }
 
 /// Substitute placeholders into a `--transcribe-cmd` template, run it, and parse
@@ -249,28 +283,44 @@ fn transcribe_command(
     }
 
     // Prefer a written {output} file (extension tells us the format); else stdout.
+    let mut parsed = None;
     if used_output {
         for (cand, fmt) in [(&output_json, Blob::Json), (&output_srt, Blob::Srt)] {
             if let Ok(raw) = std::fs::read_to_string(cand) {
                 if !raw.trim().is_empty() {
-                    return parse_transcript_text(&raw, Some(fmt));
+                    parsed = Some(parse_transcript_text(&raw, Some(fmt)));
+                    break;
                 }
             }
         }
-        if let Ok(raw) = std::fs::read_to_string(&output_base) {
-            if !raw.trim().is_empty() {
-                return parse_transcript_text(&raw, None);
+        if parsed.is_none() {
+            if let Ok(raw) = std::fs::read_to_string(&output_base) {
+                if !raw.trim().is_empty() {
+                    parsed = Some(parse_transcript_text(&raw, None));
+                }
             }
         }
     }
 
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    if stdout.trim().is_empty() {
-        return Err(TranscribeError::Parse(
-            "transcriber produced no output (wrote no {output} file and empty stdout)".into(),
-        ));
+    let result = parsed.unwrap_or_else(|| {
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        if stdout.trim().is_empty() {
+            Err(TranscribeError::Parse(
+                "transcriber produced no output (wrote no {output} file and empty stdout)".into(),
+            ))
+        } else {
+            parse_transcript_text(&stdout, None)
+        }
+    });
+
+    // `{output}` is scratch space, not part of the public recording package.
+    // Keep it on failure for diagnostics, but remove it after a successful parse.
+    if result.is_ok() && used_output {
+        for path in [&output_base, &output_json, &output_srt] {
+            let _ = std::fs::remove_file(path);
+        }
     }
-    parse_transcript_text(&stdout, None)
+    result
 }
 
 /// Which transcript wire format a blob is.
@@ -415,5 +465,16 @@ mod tests {
         .engine_meta();
         assert_eq!(eng, "command");
         assert_eq!(model.as_deref(), Some("whisper-cli -f {audio}"));
+        #[cfg(feature = "record")]
+        let (eng, model) = Transcriber::ManagedWhisper {
+            executable: "whisper-cli".into(),
+            model: "ggml-base.en.bin".into(),
+        }
+        .engine_meta();
+        #[cfg(feature = "record")]
+        {
+            assert_eq!(eng, "whisper.cpp");
+            assert_eq!(model.as_deref(), Some("base.en"));
+        }
     }
 }

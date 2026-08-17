@@ -7,6 +7,9 @@ use framewatch::{
 };
 use std::path::PathBuf;
 
+#[cfg(feature = "record")]
+const DEFAULT_RECORD_LAUNCH_WAIT_MS: u64 = 15_000;
+
 #[derive(Parser)]
 #[command(
     name = "framewatch",
@@ -37,6 +40,8 @@ enum Command {
     /// Record a window to video while narrating into the mic, then write an
     /// LLM-ready package (video + timestamped transcript + prompt).
     Record(RecordArgs),
+    /// Install and inspect managed transcription dependencies.
+    Transcriber(TranscriberArgs),
     /// Launch the GUI picker / ROI editor.
     Gui(GuiArgs),
 }
@@ -164,10 +169,11 @@ struct RecordArgs {
     #[arg(long, value_name = "X,Y,W,H")]
     roi: Option<String>,
     /// Wait up to N seconds for the target window to appear before failing.
+    /// `--launch` defaults to 15 seconds when no config wait is set.
     #[arg(long)]
     wait: Option<u64>,
-    /// Auto-stop after N seconds (otherwise record until Ctrl+C).
-    #[arg(long)]
+    /// Auto-stop N seconds after encoder startup (otherwise record until Ctrl+C).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
     duration: Option<u64>,
     /// Target video frames per second (1..=60).
     #[arg(long, default_value_t = 30)]
@@ -178,17 +184,29 @@ struct RecordArgs {
     /// Don't capture the microphone — record video only (also skips transcription).
     #[arg(long)]
     no_audio: bool,
-    /// Transcribe the narration by shelling out to a local transcriber (e.g.
-    /// whisper.cpp's `whisper-cli`). `{audio}` and `{output}` are substituted;
-    /// the command must emit framewatch transcript JSON or SRT.
+    /// Override managed Whisper by shelling out to another local transcriber.
+    /// `{audio}` and `{output}` are substituted; the command must emit
+    /// framewatch transcript JSON or SRT.
     #[arg(long, value_name = "CMD")]
     transcribe_cmd: Option<String>,
-    /// Skip transcription (record video + audio only).
+    /// Skip transcription and managed Whisper setup (record video + audio only).
     #[arg(long, conflicts_with = "transcribe_cmd")]
     no_transcribe: bool,
     /// Load a base config from this TOML file (for `out`/`target`/`roi` defaults).
     #[arg(long)]
     config: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct TranscriberArgs {
+    #[command(subcommand)]
+    command: TranscriberCommand,
+}
+
+#[derive(Subcommand)]
+enum TranscriberCommand {
+    /// Download, verify, and validate managed whisper.cpp and its model.
+    Setup,
 }
 
 #[derive(Args)]
@@ -207,8 +225,35 @@ fn main() -> Result<()> {
         Command::Watch(args) => cmd_watch(args),
         Command::Shot(args) => cmd_shot(args),
         Command::Record(args) => cmd_record(args),
+        Command::Transcriber(args) => cmd_transcriber(args),
         Command::Gui(args) => cmd_gui(args),
     }
+}
+
+#[cfg(feature = "record")]
+fn cmd_transcriber(args: TranscriberArgs) -> Result<()> {
+    match args.command {
+        TranscriberCommand::Setup => {
+            eprintln!(
+                "framewatch: installing managed whisper.cpp {} / {} (~150 MiB on first use)",
+                framewatch::WHISPER_VERSION,
+                framewatch::WHISPER_MODEL
+            );
+            let managed = framewatch::ensure_managed_whisper()
+                .context("preparing managed Whisper transcription")?;
+            println!("whisper_cli={}", managed.executable.display());
+            println!("model={}", managed.model.display());
+            Ok(())
+        }
+    }
+}
+
+#[cfg(not(feature = "record"))]
+fn cmd_transcriber(_args: TranscriberArgs) -> Result<()> {
+    anyhow::bail!(
+        "managed transcription requires the `record` feature. Reinstall with \
+         `cargo install framewatch --features \"wgc record\"`."
+    )
 }
 
 fn init_tracing(verbose: u8) {
@@ -420,11 +465,34 @@ impl Drop for ChildGuard {
 }
 
 #[cfg(feature = "record")]
+fn effective_record_wait_ms(
+    explicit_wait_seconds: Option<u64>,
+    config_wait_ms: u64,
+    launched: bool,
+) -> u64 {
+    explicit_wait_seconds
+        .map(|seconds| seconds.saturating_mul(1000))
+        .unwrap_or_else(|| {
+            if launched && config_wait_ms == 0 {
+                DEFAULT_RECORD_LAUNCH_WAIT_MS
+            } else {
+                config_wait_ms
+            }
+        })
+}
+
+#[cfg(feature = "record")]
 fn cmd_record(args: RecordArgs) -> Result<()> {
     use framewatch::recording::{files, AudioMeta, VideoMeta};
-    use framewatch::{record, PackageWriter, RecordConfig, RecordingManifest, Transcriber};
+    use framewatch::{
+        record, record_with_duration, PackageWriter, RecordConfig, RecordingManifest, Transcriber,
+    };
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+
+    if args.duration == Some(0) {
+        anyhow::bail!("--duration must be at least 1 second");
+    }
 
     // Base config supplies out_dir / target / crop defaults.
     let base = match &args.config {
@@ -458,20 +526,39 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     }
 
     // 2. Choose the transcriber up front. `--no-audio` implies no transcription
-    //    (there's nothing to transcribe).
+    //    (there's nothing to transcribe). With no override, provision the pinned
+    //    managed whisper.cpp runtime/model before launching capture resources.
     let transcriber = if args.no_transcribe || args.no_audio {
         Transcriber::Disabled
     } else if let Some(cmd) = args.transcribe_cmd.clone() {
         Transcriber::Command { template: cmd }
     } else {
         eprintln!(
-            "framewatch: no transcription requested — recording video + audio only \
-             (pass --transcribe-cmd \"<transcriber>\"; --no-transcribe silences this)."
+            "framewatch: preparing managed Whisper transcription (first use downloads ~150 MiB; \
+             pass --no-transcribe to opt out)."
         );
-        Transcriber::Disabled
+        let managed = framewatch::ensure_managed_whisper()
+            .context("preparing managed Whisper transcription")?;
+        eprintln!(
+            "framewatch: using whisper.cpp {} with model {}",
+            framewatch::WHISPER_VERSION,
+            framewatch::WHISPER_MODEL
+        );
+        Transcriber::ManagedWhisper {
+            executable: managed.executable,
+            model: managed.model,
+        }
     };
 
-    // 3. Output package directory.
+    // 3. Install the stop handler before creating output or starting resources.
+    let stop = Arc::new(AtomicBool::new(false));
+    {
+        let stop = stop.clone();
+        ctrlc::set_handler(move || stop.store(true, Ordering::SeqCst))
+            .context("installing Ctrl+C handler")?;
+    }
+
+    // 4. Output package directory.
     let out_dir = args.out.unwrap_or(base.out_dir);
     let crop = match args.roi.as_deref() {
         Some(spec) => Some(parse_roi(spec)?),
@@ -482,21 +569,8 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
     let writer = PackageWriter::new(&out_dir, started_at, &hint).context("creating package dir")?;
     let dir = writer.recording().dir.clone();
 
-    // 4. Stop on Ctrl+C or after --duration.
-    let stop = Arc::new(AtomicBool::new(false));
-    {
-        let stop = stop.clone();
-        let _ = ctrlc::set_handler(move || stop.store(true, Ordering::SeqCst));
-    }
-    if let Some(secs) = args.duration {
-        let stop = stop.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(secs.saturating_mul(1000)));
-            stop.store(true, Ordering::SeqCst);
-        });
-    }
-
-    // 5. Record until stopped.
+    // 5. Record until stopped. A bounded duration begins after the first frame
+    //    and encoder startup, rather than consuming target/window wait time.
     println!("framewatch: recording to {}", dir.display());
     match args.duration {
         Some(secs) => println!("framewatch: will stop after {secs}s (or Ctrl+C)."),
@@ -511,13 +585,13 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
         video_out: writer.recording().video_path(),
         audio_out: writer.recording().audio_path(),
         work_dir: dir.clone(),
-        wait_ms: args
-            .wait
-            .map(|s| s.saturating_mul(1000))
-            .unwrap_or(base.wait_ms),
+        wait_ms: effective_record_wait_ms(args.wait, base.wait_ms, child.is_some()),
         stop,
     };
-    let outcome = record(rcfg);
+    let outcome = match args.duration {
+        Some(secs) => record_with_duration(rcfg, std::time::Duration::from_secs(secs)),
+        None => record(rcfg),
+    };
 
     // Tear down the launched child before reporting (the guard also covers any
     // earlier error path).
@@ -632,6 +706,42 @@ mod tests {
         assert_eq!((r.x, r.y, r.w, r.h), (10, 20, 300, 200));
         assert!(parse_roi("1,2,3").is_err());
         assert!(parse_roi("a,b,c,d").is_err());
+    }
+
+    #[test]
+    fn record_duration_rejects_zero() {
+        assert!(Cli::try_parse_from([
+            "framewatch",
+            "record",
+            "--title",
+            "test",
+            "--duration",
+            "0",
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "framewatch",
+            "record",
+            "--title",
+            "test",
+            "--duration",
+            "1",
+        ])
+        .is_ok());
+    }
+
+    #[cfg(feature = "record")]
+    #[test]
+    fn record_launch_waits_for_the_child_window_by_default() {
+        assert_eq!(effective_record_wait_ms(None, 0, true), 15_000);
+        assert_eq!(effective_record_wait_ms(None, 2_500, true), 2_500);
+        assert_eq!(effective_record_wait_ms(Some(7), 2_500, true), 7_000);
+        assert_eq!(effective_record_wait_ms(None, 0, false), 0);
+    }
+
+    #[test]
+    fn managed_transcriber_setup_command_parses() {
+        assert!(Cli::try_parse_from(["framewatch", "transcriber", "setup"]).is_ok());
     }
 
     /// A portable long-running child so we can prove the guard kills it.

@@ -72,6 +72,10 @@ pub enum TranscribeError {
     /// Audio decode / format error (e.g. reading the WAV).
     #[error("audio error: {0}")]
     Audio(String),
+
+    /// Managed speech-to-text runtime/model setup failed.
+    #[error("managed transcriber setup failed: {0}")]
+    Setup(String),
 }
 
 /// Errors produced by the `record` A/V capture runtime.

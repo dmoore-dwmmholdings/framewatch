@@ -19,6 +19,22 @@ pub(crate) type FrameMailbox = Arc<Mutex<Option<Arc<[u8]>>>>;
 /// Locked `(width, height)` publication, signalled once the first frame lands.
 pub(crate) type DimsCell = Arc<(Mutex<Option<(u32, u32)>>, Condvar)>;
 
+/// Round a captured dimension up to an even value for H.264/yuv420p. Real
+/// windows and user crops can be odd-sized, but libx264 rejects odd output
+/// dimensions with this pixel format.
+fn encoder_dimension(value: u32) -> u32 {
+    let value = value.max(1);
+    if value.is_multiple_of(2) {
+        value
+    } else {
+        value.checked_add(1).unwrap_or(value - 1)
+    }
+}
+
+fn encoder_dimensions(width: u32, height: u32) -> (u32, u32) {
+    (encoder_dimension(width), encoder_dimension(height))
+}
+
 /// Copy `frame` into `out` as exactly `lock_w * lock_h * 4` tightly-packed BGRA
 /// bytes: rows/columns beyond the frame are zero-padded; a larger frame is
 /// cropped to the top-left. This both repacks away any stride padding and keeps
@@ -85,19 +101,20 @@ pub(crate) fn wait_for_dims(
 /// The first frame locks the recording dimensions (after the optional `crop`),
 /// records its capture instant into `v0` (for A/V sync), and signals `dims`.
 /// Subsequent frames are conformed to the locked size. Returns when `stop` is
-/// observed or the window closes.
-pub(crate) fn run_capture(
-    mut backend: WgcBackend,
+/// observed or the window closes. Always sets `stop` and wakes `dims` before
+/// returning so the pacing/first-frame waiters cannot outlive the capture.
+pub(crate) fn run_capture<B: CaptureBackend>(
+    mut backend: B,
     crop: Option<Rect>,
     mailbox: FrameMailbox,
     dims: DimsCell,
     v0: Arc<Mutex<Option<Instant>>>,
     stop: Arc<AtomicBool>,
-) {
+) -> Result<(), CaptureError> {
     let mut locked: Option<(u32, u32)> = None;
     let mut scratch: Vec<u8> = Vec::new();
 
-    let _ = backend.run(&mut |frame| {
+    let result = backend.run(&mut |frame| {
         if stop.load(Ordering::Relaxed) {
             return ControlFlow::Stop;
         }
@@ -108,7 +125,7 @@ pub(crate) fn run_capture(
         let (lw, lh) = match locked {
             Some(d) => d,
             None => {
-                let d = (frame.width.max(1), frame.height.max(1));
+                let d = encoder_dimensions(frame.width, frame.height);
                 locked = Some(d);
                 *v0.lock().unwrap() = Some(frame.captured_at);
                 let (lock, cv) = &*dims;
@@ -121,6 +138,10 @@ pub(crate) fn run_capture(
         *mailbox.lock().unwrap() = Some(Arc::from(scratch.as_slice()));
         ControlFlow::Continue
     });
+
+    stop.store(true, Ordering::Relaxed);
+    dims.1.notify_all();
+    result
 }
 
 #[cfg(test)]
@@ -196,5 +217,38 @@ mod tests {
         // Tight output: every byte is a real pixel (no padding carried over).
         assert_eq!(out.len(), (w * h * 4) as usize);
         assert!(out.iter().all(|&b| b == 0x7F));
+    }
+
+    #[test]
+    fn encoder_dimensions_are_nonzero_and_even() {
+        assert_eq!(encoder_dimensions(1920, 1080), (1920, 1080));
+        assert_eq!(encoder_dimensions(641, 481), (642, 482));
+        assert_eq!(encoder_dimensions(0, 1), (2, 2));
+    }
+
+    #[test]
+    fn capture_completion_stops_consumers_and_publishes_even_dimensions() {
+        let backend = crate::capture::MockBackend::new(vec![frame(641, 481, 0x44)]);
+        let mailbox: FrameMailbox = Arc::new(Mutex::new(None));
+        let dims: DimsCell = Arc::new((Mutex::new(None), Condvar::new()));
+        let v0 = Arc::new(Mutex::new(None));
+        let stop = Arc::new(AtomicBool::new(false));
+
+        run_capture(
+            backend,
+            None,
+            mailbox.clone(),
+            dims.clone(),
+            v0,
+            stop.clone(),
+        )
+        .unwrap();
+
+        assert!(stop.load(Ordering::Relaxed));
+        assert_eq!(*dims.0.lock().unwrap(), Some((642, 482)));
+        assert_eq!(
+            mailbox.lock().unwrap().as_ref().unwrap().len(),
+            642 * 482 * 4
+        );
     }
 }

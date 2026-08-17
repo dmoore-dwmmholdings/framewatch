@@ -7,6 +7,37 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-16
+
+### Added
+
+- **Codex-native integration.** Added repository guidance in `AGENTS.md` and a
+  repo-scoped `$framewatch` skill under `.agents/skills/framewatch/`, plus
+  discovery and installation guidance in the human- and machine-readable agent
+  integration docs.
+- **Narrated recording test app.** Added the `record-test-app` example and a
+  bounded manual runbook with planted visual defects for validating recording,
+  narration, resize handling, and package inspection.
+- **Managed local transcription.** `record` now provisions a pinned,
+  checksum-verified whisper.cpp runtime and `base.en` model into the user cache
+  on first use, then uses it automatically. `--transcribe-cmd` remains an
+  override and `--no-transcribe` opts out. `framewatch transcriber setup`
+  provides an explicit preflight for installers and CI.
+
+### Fixed
+
+- **`record` runtime lifecycle.** Odd capture/crop dimensions are padded for
+  H.264/yuv420p, capture termination now stops the pacing loop, encoder failures
+  cleanly stop and join capture/audio resources, and Ctrl+C handler installation
+  errors are surfaced.
+- **`record --duration` timing.** The duration now starts when encoding begins,
+  rather than while the command is still waiting for its target and first frame.
+- **`record --launch` startup race.** Launch mode now waits up to 15 seconds for
+  the child window by default instead of resolving its PID immediately.
+- **Recording package hygiene.** Successful transcription now removes the
+  transcriber's scratch output so recording packages contain only their seven
+  documented public artifacts.
+
 ## [0.5.0] - 2026-06-16
 
 This release closes the gaps from the v0.4.1 functional assessment and expands the
@@ -227,7 +258,8 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.3.0...v0.4.0
