@@ -4,7 +4,7 @@ pub mod channel;
 pub mod directory;
 
 pub use channel::ChannelSink;
-pub use directory::DirectorySink;
+pub use directory::{DirectorySink, MarkInbox};
 
 use crate::config::ImageOpts;
 use crate::error::SinkError;

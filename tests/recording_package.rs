@@ -54,6 +54,8 @@ fn transcribe_cmd_writes_full_package() {
     assert_eq!(transcript.segments.len(), 1);
     assert_eq!(transcript.segments[0].text, "open the settings panel");
     assert_eq!(transcript.segments[0].start_ms, 1250);
+    assert!(!dir.join("transcript_raw.json").exists());
+    assert!(!dir.join("transcript_raw.srt").exists());
 
     writer.write_transcript(&transcript).unwrap();
     let (engine, model) = transcriber.engine_meta();

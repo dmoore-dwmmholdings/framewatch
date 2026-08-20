@@ -1,6 +1,6 @@
 [package]
 name = "framewatch"
-version = "0.5.0"
+version = "0.7.0"
 edition = "2021"
 # Floor is set by the locked dependency tree (image 0.25 needs 1.88,
 # image_hasher 3.1 needs 1.87), not by framewatch's own source. A CI job builds
@@ -33,9 +33,18 @@ llm = [] # reserved: out-of-band vision-caption sink
 # (frames piped to an `ffmpeg` subprocess) + the microphone (`cpal` -> WAV via
 # `hound`), producing an LLM-ready package. Implies `wgc` (the live capture
 # backend); the video path is additionally `#[cfg(windows)]`. Needs `ffmpeg` on
-# PATH at runtime. Transcription is done via `--transcribe-cmd` (any local
-# transcriber, e.g. whisper.cpp's prebuilt `whisper-cli`).
-record = ["dep:cpal", "dep:hound", "dep:ctrlc", "wgc"]
+# PATH at runtime. A pinned whisper.cpp runtime + base.en model are provisioned
+# into the user cache on first use; `--transcribe-cmd` remains an override.
+record = [
+  "dep:cpal",
+  "dep:hound",
+  "dep:ctrlc",
+  "dep:dirs",
+  "dep:sha2",
+  "dep:ureq",
+  "dep:zip",
+  "wgc",
+]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -64,6 +73,9 @@ webp = { version = "0.3", optional = true }
 cpal = { version = "0.17", optional = true }
 hound = { version = "3.5", optional = true }
 ctrlc = { version = "3", optional = true }
+sha2 = { version = "0.10", optional = true }
+ureq = { version = "3", optional = true }
+zip = { version = "2.4", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = { version = "2", optional = true }
@@ -88,6 +100,11 @@ required-features = ["cli"]
 [[example]]
 name = "embed"
 path = "examples/embed.rs"
+
+[[example]]
+name = "record-test-app"
+path = "examples/record_test_app.rs"
+required-features = ["gui"]
 
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"

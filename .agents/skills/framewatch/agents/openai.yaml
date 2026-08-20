@@ -1,0 +1,4 @@
+interface:
+  display_name: "Framewatch"
+  short_description: "Capture and inspect Windows UI workflows"
+  default_prompt: "Use $framewatch to capture and inspect this application's UI state."

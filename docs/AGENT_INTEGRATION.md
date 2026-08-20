@@ -15,9 +15,32 @@ lives in [`dist/sample-session/`](../dist/sample-session).
 
 ---
 
+## Codex-native integration
+
+The repository ships a Codex skill at
+[`../.agents/skills/framewatch/SKILL.md`](../.agents/skills/framewatch/SKILL.md).
+Codex discovers repository skills under `.agents/skills`, so the workflow is
+available automatically when Codex opens this checkout. Invoke it explicitly as
+`$framewatch` or ask Codex to capture, inspect, or record a Windows application
+window.
+
+For use from a different repository:
+
+1. Put a current `framewatch.exe` on `PATH` (or give Codex its absolute path),
+   then verify `framewatch --version` and the required subcommand's `--help`.
+2. Copy `.agents/skills/framewatch/` into the target repository at the same
+   relative path. For a skill available in every repository, copy it to
+   `~/.agents/skills/framewatch/` instead.
+3. Start a new Codex task if the skill does not appear immediately.
+
+The root [`../AGENTS.md`](../AGENTS.md) is contributor guidance for working on
+Framewatch itself; the skill is the reusable integration for operating the tool.
+
+---
+
 ## 0. Where the binary is
 
-After a release build (`cargo build --release --features "cli wgc gui"`), the
+After a release build (`cargo build --release --features "cli wgc gui record"`), the
 binary is copied to:
 
 ```
@@ -30,7 +53,7 @@ wherever you cloned/built this repository.)
 Verify it:
 
 ```sh
-dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.5.0
+dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.6.0
 ```
 
 > **Platform.** Live capture is Windows-only (Graphics Capture API), compiled in
@@ -84,8 +107,23 @@ Common knobs (all optional; sensible defaults):
 | `--settle-ms <n>` | `350` | quiescence before declaring "settled" |
 | `--value-sample-ms <n>` | `1000` | throttle for volatile-region samples |
 | `--roi <X,Y,W,H>` | — | **crop** capture + detection + output to a pixel region (clip host chrome / titlebar / menu bar). Coords are relative to the captured frame's top-left. |
+| `--labels-file <path>` | — | tail a newline-delimited file; each line becomes a `mark` event and captions the next frame (§1.5) |
 | `--config <file>` | — | load a `framewatch.toml` base config (flags override it) |
 | `-v`, `-vv` | — | log verbosity (or set `RUST_LOG`) |
+
+**Sensitivity** — the defaults are tuned to ignore noise, which means a small
+change can be coalesced away. A 24 px status banner across the top of a browser
+window is about 3 % of the height and, once tiled, only trips one row:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--min-area-ratio <r>` | `0.002` | fraction of the frame that must change to count as meaningful activity. Lower it for a thin strip. |
+| `--tile-change-threshold <n>` | `12` | per-tile luma delta (0-255) needed to call a tile changed. Lower it for low-contrast changes. |
+| `--tile-grid <COLSxROWS>` | `32x18` | detection grid. A finer grid makes a small change a larger fraction of one tile. |
+
+In practice, try `--roi` first: cropping to the strip you care about makes it
+100 % of the frame and needs no threshold tuning at all. Reach for the knobs
+above when you need the whole window *and* the small change.
 
 `--roi` crops everything downstream: the saved PNGs are just that region, and
 change-detection ignores motion outside it (so e.g. host window chrome won't
@@ -178,7 +216,55 @@ else
 fi
 ```
 
-### 1.4 GUI picker / ROI editor (for humans)
+### 1.4 Label what the application is doing (`mark`, `--labels-file`)
+
+A capture says *when* the window changed. It cannot say what the application
+thought it was doing. Marks close that gap, and they land in the same
+`timeline.jsonl`, so nothing downstream has to align two clocks.
+
+**From a script or an agent**, at any time, including while `watch` is running:
+
+```sh
+distramewatch.exe mark --label "before-checkout"
+distramewatch.exe mark --label "signed-in" --json '{"user":"agent.buyer.01"}'
+```
+
+With no `--session` it targets the newest session under `--out` (default
+`./.framewatch`). The line is appended by `mark` itself, so it survives whether or
+not a watcher is running; a live watcher additionally attaches the label to the
+next frame.
+
+**From the application**, with no extra process per label: append lines to a file
+and let the watcher tail it.
+
+```sh
+distramewatch.exe watch --title "My App" --labels-file ./console.log
+```
+
+Each line becomes one mark. A plain line is the label. A JSON object is kept whole
+in `data`, and its `note`, `label`, or `kind` field becomes the label — so an app
+can append the event objects it already emits without reshaping them. Partial
+lines are held until the newline arrives, and the tail starts at the end of an
+existing file so a re-run does not replay yesterday's labels.
+
+A Playwright bridge is three lines:
+
+```js
+page.on('console', (message) => appendFileSync('console.log', `${message.text()}
+`))
+```
+
+**Timing.** Followed files are read at the moment a frame is captured, so a label
+written before a frame lands on *that* frame, not the one after it. Labels
+arriving after the last frame are still written when the session closes.
+
+**What you get.** The next captured frame carries
+`marks_since_last_frame: ["before-checkout"]`, and when exactly one mark preceded
+it the file is named `frames/000004_settled_before-checkout.png`. Several marks
+before one frame all appear in the array, but the frame keeps its plain name —
+one label is a name, several are ambiguous.
+
+### 1.5 GUI picker / ROI editor (for humans)
 
 ```sh
 dist\framewatch.exe gui
@@ -251,13 +337,34 @@ One object per line. Example (`settled` event):
   "busy": { "active": false, "regions": [{ "label": "test-runner", "active": false }] },
   "timing": { "since_prev_emit_ms": 198, "active_for_ms": 165, "quiescent_for_ms": 165 },
   "coalesced_frames": 5,                      // frames observed & collapsed since prev image
-  "note": "Settled after 0.17s of activity in 0 region(s)."  // human-readable
+  "note": "Settled after 0.17s of activity in 0 region(s).",  // human-readable
+  "marks_since_last_frame": ["before-checkout"]  // app labels, omitted when empty
 }
 ```
 
 Fields that are absent when not applicable are simply omitted (`image` is `null`
 for image-less events; `dhash` / `hamming_to_prev_emit` / `timing.*` appear only
 when known).
+
+**Mark lines.** A line whose `kind` is `"mark"` is an application label, not a
+capture, and carries none of the window/change/busy/image fields:
+
+```jsonc
+{
+  "session_id": "2026-06-14T06-22-17_chrome",
+  "kind": "mark",
+  "wall_time": "2026-06-14T06:22:19.104Z",
+  "elapsed_ms": 1485,
+  "note": "before-checkout",
+  "data": { "kind": "annotation", "seq": 4 }   // present when the label came from JSON
+}
+```
+
+Read them for what the application thought it was doing. When a mark arrived
+while the watcher was running, the *next* frame repeats the label in
+`marks_since_last_frame` and — when exactly one mark preceded it — is named after
+it (`frames/000004_settled_before-checkout.png`). Prefer that to matching
+timestamps yourself.
 
 ### 2.4 Event kinds
 
@@ -270,13 +377,14 @@ when known).
 | `value_sample` | — | A throttled sample of a volatile region (counter/progress). Usually note-only. |
 | `transition_start` | — | Activity began (off by default). |
 | `manual` | ✅ | A user/host-requested capture. |
+| `mark` | — | Not a capture: an application label (see above). |
 
 ### 2.5 `session.json` — manifest
 
 ```jsonc
 {
   "session_id": "...",
-  "tool": "framewatch 0.5.0",
+  "tool": "framewatch 0.6.0",
   "target": { "title": "...", "exe": "...", "selected_via": "cli" },
   "started_at": "...Z",
   "ended_at": "...Z",                 // set on clean shutdown
@@ -411,8 +519,18 @@ dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --wait 15 --until-
 dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --timeout 25
 dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
 
+# label what the app is doing, from anywhere (safe while `watch` runs):
+distramewatch.exe mark --label "before-checkout"
+distramewatch.exe mark --label "signed-in" --session ./.framewatch/2026-06-14T06-22-17_chrome
+
+# let the app write its own labels; the watcher tails the file:
+distramewatch.exe watch --title "My App" --labels-file ./console.log --out ./.framewatch
+
+# notice a small change (a 24px status banner, say) that the defaults coalesce away:
+distramewatch.exe watch --title "My App" --min-area-ratio 0.0005 --tile-change-threshold 8
+
 # record a window to video while narrating, then bundle an LLM package (see §6):
-dist\framewatch.exe record --title "My Game" --duration 60 --transcribe-cmd "whisper-cli -m m.bin -f {audio} -osrt -of {output}"
+dist\framewatch.exe record --title "My Game" --duration 60
 
 # then read:  <out>/<session_id>/timeline.jsonl   (+ session.json, frames/*.png)
 # open images only for kind == "settled" | "busy_end"
@@ -428,11 +546,27 @@ it **continuously records** one window to video while the user narrates into the
 microphone, then transcribes the narration locally and writes a package an LLM
 can act on. Build with `--features "wgc record"`; **`ffmpeg` must be on PATH**.
 
+For a crates.io installation that includes this subcommand, use:
+
 ```sh
-# Record until Ctrl+C (or --duration), transcribing with a local transcriber
-# ({audio}/{output} are substituted):
+cargo install framewatch --features "wgc record"
+framewatch transcriber setup   # optional preflight; record also provisions automatically
+```
+
+No separate speech-to-text setup is required. The first recording that needs a
+transcript automatically downloads the pinned whisper.cpp runtime and `base.en`
+model (~150 MiB) into the user cache, verifies SHA-256 checksums, and reuses them
+for later recordings. Set `FRAMEWATCH_WHISPER_DIR` to override the cache parent,
+use `--no-transcribe` to skip setup/transcription, or use `--transcribe-cmd` to
+override the managed engine.
+
+```sh
+# Record until Ctrl+C (or --duration), transcribing with managed Whisper:
+dist\framewatch.exe record --title "My Game" --duration 60 --out ./.framewatch
+
+# Or override it with another local command ({audio}/{output} are substituted):
 dist\framewatch.exe record --title "My Game" --duration 60 \
-  --transcribe-cmd "whisper-cli -m ggml-base.en.bin -f {audio} -osrt -of {output}" --out ./.framewatch
+  --transcribe-cmd "other-transcriber -f {audio} -o {output}"
 
 # Or skip transcription (video + audio only):
 dist\framewatch.exe record --pid 41234 --no-transcribe
@@ -444,6 +578,13 @@ and `--duration` behave exactly as in `watch`/`shot`. Extra options: `--fps`
 video-only), and the transcription choices above. Stop with **Ctrl+C** (the mp4
 is finalized cleanly) or `--duration`. If no microphone is available, recording
 falls back to video-only automatically.
+
+For `record`, `--duration` is measured from encoder startup, after the target
+window resolves and its first frame arrives; `--wait` time does not consume the
+requested recording duration. Odd window/crop dimensions are padded by one pixel
+when needed so H.264/yuv420p output always has even dimensions.
+`record --launch` waits up to 15 seconds for the launched window by default;
+an explicit `--wait` or nonzero config `wait_ms` overrides that default.
 
 ### 6.1 Package layout
 
@@ -492,7 +633,7 @@ falls back to video-only automatically.
 ```jsonc
 {
   "session_id": "2026-06-15T00-30-31_game",
-  "tool": "framewatch 0.5.0",
+  "tool": "framewatch 0.6.0",
   "kind": "recording",                         // distinguishes this from a capture session.json
   "target": { "title": "My Game", "exe": "game.exe", "selected_via": "cli" },
   "started_at": "...Z", "ended_at": "...Z",
@@ -501,8 +642,8 @@ falls back to video-only automatically.
   // "audio" is omitted entirely for a video-only recording (no microphone):
   "audio": { "path": "audio.wav", "sample_rate": 48000, "channels": 1, "duration_ms": 64300 },
   "transcript": { "path": "transcript.json", "srt": "transcript.srt",
-                  "engine": "command",         // "command" | "none"
-                  "model": "whisper-cli -m … -f {audio} …", "segment_count": 2, "language": "en" },
+                  "engine": "whisper.cpp",     // "whisper.cpp" | "command" | "none"
+                  "model": "base.en", "segment_count": 2, "language": "en" },
   "artifacts": ["recording.mp4","audio.wav","transcript.json","transcript.srt",
                 "recording.json","PROMPT.md","README_FOR_AGENT.md"]
 }
@@ -512,12 +653,13 @@ falls back to video-only automatically.
 
 | Choice | Flag | Needs |
 |---|---|---|
-| External command | `--transcribe-cmd "<cmd>"` | any local transcriber on PATH (e.g. whisper.cpp's prebuilt `whisper-cli`) |
+| Managed Whisper (default) | _(none)_ | first-use HTTPS download (~150 MiB), then local cache |
+| External override | `--transcribe-cmd "<cmd>"` | any compatible local transcriber |
 | None | `--no-transcribe` | — (empty transcript; video + audio only) |
 
-framewatch bundles no speech-to-text engine — transcription is always done by
-shelling out via `--transcribe-cmd`, so there's nothing to compile and any
-transcriber works.
+The managed runtime/model are pinned and checksum-verified before use. They are
+downloaded rather than embedded in the crate, keeping `cargo install` small while
+making the default recording workflow self-configuring.
 
 There is no microphone, or you don't want one? Recording is video-only then: it
 warns and writes a package with no `audio.wav` and an empty transcript (and the

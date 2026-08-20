@@ -530,6 +530,9 @@ impl<C: Clock> Engine<C> {
             timing,
             coalesced_frames: coalesced,
             note,
+            // The engine sees pixels, not application state; the sink owning the
+            // session fills this in from whatever arrived out of band.
+            marks_since_last_frame: Vec::new(),
         }
     }
 

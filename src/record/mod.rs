@@ -96,6 +96,24 @@ const FIRST_FRAME_WAIT_MS: u64 = 10_000;
 /// muxing them into `cfg.video_out`. Returns metadata for the package manifest.
 #[cfg(windows)]
 pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
+    record_inner(cfg, None)
+}
+
+/// Record for a bounded duration measured from encoder startup (after the target
+/// window has resolved and its first frame has arrived).
+#[cfg(windows)]
+pub fn record_with_duration(
+    cfg: RecordConfig,
+    duration: std::time::Duration,
+) -> Result<RecordOutcome, RecordError> {
+    record_inner(cfg, Some(duration))
+}
+
+#[cfg(windows)]
+fn record_inner(
+    cfg: RecordConfig,
+    duration: Option<std::time::Duration>,
+) -> Result<RecordOutcome, RecordError> {
     use crate::capture::CaptureBackend;
     use std::sync::atomic::Ordering;
     use std::sync::{Condvar, Mutex};
@@ -116,7 +134,7 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
 
     // Start the microphone. A missing/unusable input device is non-fatal — we
     // fall back to a video-only recording rather than losing the capture.
-    let audio = if cfg.capture_audio {
+    let mut audio = if cfg.capture_audio {
         match audio::AudioRecorder::start(cfg.mic.as_deref(), &cfg.audio_out) {
             Ok(a) => Some(a),
             Err(e) => {
@@ -146,10 +164,11 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
         None => {
             cfg.stop.store(true, Ordering::Relaxed);
             wgc_stop.store(true, Ordering::Relaxed);
-            let _ = capture.join();
-            if let Some(a) = audio {
+            let capture_result = join_capture(capture);
+            if let Some(a) = audio.take() {
                 let _ = a.finish();
             }
+            capture_result?;
             return Err(RecordError::Capture(crate::error::CaptureError::Backend(
                 "the target window produced no frames to record (is it visible and rendering?)"
                     .into(),
@@ -159,18 +178,39 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
 
     // Spawn the encoder and pace frames to it at a constant rate until stop.
     let temp_video = cfg.work_dir.join(".framewatch-video.tmp.mp4");
-    let mut encoder = ffmpeg::VideoEncoder::spawn(width, height, fps, &temp_video)?;
+    let mut encoder = match ffmpeg::VideoEncoder::spawn(width, height, fps, &temp_video) {
+        Ok(encoder) => encoder,
+        Err(error) => {
+            cfg.stop.store(true, Ordering::Relaxed);
+            wgc_stop.store(true, Ordering::Relaxed);
+            let _ = join_capture(capture);
+            if let Some(a) = audio.take() {
+                let _ = a.finish();
+            }
+            let _ = std::fs::remove_file(&temp_video);
+            return Err(error);
+        }
+    };
     let pacing_start = Instant::now();
+    let stop_at = duration.map(|duration| pacing_start + duration);
     let interval_ns = 1_000_000_000u64 / fps as u64;
     let mut k: u64 = 0;
     let mut frames_written: u64 = 0;
     while !cfg.stop.load(Ordering::Relaxed) {
-        let deadline = pacing_start + Duration::from_nanos(k.saturating_mul(interval_ns));
+        if stop_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            break;
+        }
+        let mut deadline = pacing_start + Duration::from_nanos(k.saturating_mul(interval_ns));
+        if let Some(stop_at) = stop_at {
+            deadline = deadline.min(stop_at);
+        }
         let now = Instant::now();
         if now < deadline {
             std::thread::sleep(deadline - now);
         }
-        if cfg.stop.load(Ordering::Relaxed) {
+        if cfg.stop.load(Ordering::Relaxed)
+            || stop_at.is_some_and(|deadline| Instant::now() >= deadline)
+        {
             break;
         }
         let frame = mailbox.lock().unwrap().clone();
@@ -188,14 +228,33 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
     // its moov atom), then finalize the WAV.
     cfg.stop.store(true, Ordering::Relaxed);
     wgc_stop.store(true, Ordering::Relaxed);
-    encoder.finish()?;
-    let _ = capture.join();
+    let encoder_result = encoder.finish();
+    let capture_result = join_capture(capture);
+    let audio_result = match audio.take() {
+        Some(audio) => audio.finish().map(Some),
+        None => Ok(None),
+    };
+
+    if let Err(error) = encoder_result {
+        let _ = std::fs::remove_file(&temp_video);
+        return Err(error);
+    }
+    if let Err(error) = capture_result {
+        let _ = std::fs::remove_file(&temp_video);
+        return Err(error);
+    }
+    let audio_stats = match audio_result {
+        Ok(stats) => stats,
+        Err(error) => {
+            let _ = std::fs::remove_file(&temp_video);
+            return Err(error);
+        }
+    };
 
     // With audio: finalize the WAV, align it to the video start, and mux.
     // Without: the encoded video is already the final output.
-    let audio_info = match audio {
-        Some(audio) => {
-            let stats = audio.finish()?;
+    let audio_info = match audio_stats {
+        Some(stats) => {
             let v0_inst = *v0.lock().unwrap();
             let audio_offset_s = match (v0_inst, stats.first_sample_at) {
                 (Some(v), Some(a)) if a >= v => (a - v).as_secs_f64(),
@@ -239,8 +298,29 @@ pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
     })
 }
 
+#[cfg(windows)]
+fn join_capture(
+    capture: std::thread::JoinHandle<Result<(), crate::error::CaptureError>>,
+) -> Result<(), RecordError> {
+    capture.join().map_err(|_| {
+        RecordError::Capture(crate::error::CaptureError::Backend(
+            "capture thread panicked".into(),
+        ))
+    })??;
+    Ok(())
+}
+
 /// Recording is only implemented on Windows (via the WGC backend).
 #[cfg(not(windows))]
 pub fn record(_cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
+    Err(RecordError::Unsupported)
+}
+
+/// Recording is only implemented on Windows (via the WGC backend).
+#[cfg(not(windows))]
+pub fn record_with_duration(
+    _cfg: RecordConfig,
+    _duration: std::time::Duration,
+) -> Result<RecordOutcome, RecordError> {
     Err(RecordError::Unsupported)
 }
