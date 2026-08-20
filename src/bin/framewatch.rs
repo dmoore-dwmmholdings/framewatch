@@ -44,6 +44,25 @@ enum Command {
     Transcriber(TranscriberArgs),
     /// Launch the GUI picker / ROI editor.
     Gui(GuiArgs),
+    /// Append an application label to a session's timeline, so the next frame
+    /// is captioned with it.
+    Mark(MarkArgs),
+}
+
+#[derive(Args)]
+struct MarkArgs {
+    /// The label, e.g. "before-checkout".
+    #[arg(long, short)]
+    label: String,
+    /// Session directory. Defaults to the most recent session under `--out`.
+    #[arg(long)]
+    session: Option<PathBuf>,
+    /// Where sessions live, when `--session` is not given (default ./.framewatch).
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// A JSON blob to carry alongside the label.
+    #[arg(long, value_name = "JSON")]
+    json: Option<String>,
 }
 
 #[derive(Args)]
@@ -90,6 +109,33 @@ struct WatchArgs {
     /// captured frame's top-left.
     #[arg(long, value_name = "X,Y,W,H")]
     roi: Option<String>,
+    /// Tail this newline-delimited file; each line becomes a `mark` event and
+    /// captions the next frame. A line may be plain text or a JSON object.
+    #[arg(long, value_name = "PATH")]
+    labels_file: Option<PathBuf>,
+    /// Per-tile luma delta needed to count a tile as changed (0-255, default 12).
+    /// Lower it to notice small, low-contrast changes.
+    #[arg(long, value_name = "N")]
+    tile_change_threshold: Option<u8>,
+    /// Fraction of the frame that must change to count as meaningful activity
+    /// (default 0.002). Lower it for a thin strip like a status banner.
+    #[arg(long, value_name = "RATIO")]
+    min_area_ratio: Option<f32>,
+    /// Tile grid as `COLSxROWS` (default 32x18). A finer grid makes a small
+    /// change a larger fraction of one tile, so it survives thresholding.
+    #[arg(long, value_name = "COLSxROWS")]
+    tile_grid: Option<String>,
+}
+
+/// Parse a `COLSxROWS` tile grid.
+fn parse_tile_grid(spec: &str) -> Result<(u16, u16)> {
+    let (cols, rows) = spec
+        .split_once(['x', 'X'])
+        .with_context(|| format!("--tile-grid must be COLSxROWS, got: {spec:?}"))?;
+    Ok((
+        cols.trim().parse().context("--tile-grid COLS")?,
+        rows.trim().parse().context("--tile-grid ROWS")?,
+    ))
 }
 
 /// Parse an `X,Y,W,H` ROI spec into a [`framewatch::Rect`].
@@ -227,7 +273,91 @@ fn main() -> Result<()> {
         Command::Record(args) => cmd_record(args),
         Command::Transcriber(args) => cmd_transcriber(args),
         Command::Gui(args) => cmd_gui(args),
+        Command::Mark(args) => cmd_mark(args),
     }
+}
+
+/// The newest session directory under `root`, by directory name.
+///
+/// Session ids start with a sortable timestamp, so lexical order is
+/// chronological — and reading the name beats reading mtimes, which a running
+/// watcher keeps touching for every session it has ever written to.
+fn latest_session(root: &std::path::Path) -> Result<PathBuf> {
+    let mut best: Option<(String, PathBuf)> = None;
+    let entries = std::fs::read_dir(root)
+        .with_context(|| format!("reading sessions under {}", root.display()))?;
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        // Only a real session — a stray directory would give a confusing error
+        // later, when the mark went somewhere nothing reads.
+        if !entry.path().join("session.json").exists() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if best.as_ref().is_none_or(|(current, _)| name > *current) {
+            best = Some((name, entry.path()));
+        }
+    }
+    match best {
+        Some((_, path)) => Ok(path),
+        None => anyhow::bail!(
+            "no framewatch session found under {}. Pass --session, or start `framewatch watch` first.",
+            root.display()
+        ),
+    }
+}
+
+fn cmd_mark(args: MarkArgs) -> Result<()> {
+    let session_dir = match args.session {
+        Some(dir) => dir,
+        None => {
+            let root = args.out.unwrap_or_else(|| PathBuf::from(".framewatch"));
+            latest_session(&root)?
+        }
+    };
+    if !session_dir.join("session.json").exists() {
+        anyhow::bail!(
+            "{} does not look like a framewatch session (no session.json)",
+            session_dir.display()
+        );
+    }
+
+    let started_at = session_started_at(&session_dir);
+    let mut record = framewatch::MarkRecord::new(args.label);
+    if let Some(raw) = args.json.as_deref() {
+        let value: serde_json::Value =
+            serde_json::from_str(raw).context("--json must be valid JSON")?;
+        record = record.with_data(value);
+    }
+    if let Some((id, started)) = started_at {
+        record = record.in_session(&id, started);
+    }
+
+    // The timeline line is written here, not by the watcher: a mark has to
+    // survive whether or not one is running.
+    framewatch::mark::append_to_timeline(&session_dir, &record)
+        .context("appending to timeline.jsonl")?;
+    // Best effort: only a live watcher reads this, and its absence just means
+    // the next frame is not captioned.
+    let _ = framewatch::mark::notify_pending(&session_dir, &record);
+
+    println!("{}", session_dir.join("timeline.jsonl").display());
+    Ok(())
+}
+
+/// Read the session id and start time out of `session.json`.
+fn session_started_at(dir: &std::path::Path) -> Option<(String, chrono::DateTime<chrono::Utc>)> {
+    let raw = std::fs::read_to_string(dir.join("session.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let id = value
+        .get("session_id")
+        .and_then(|v| v.as_str())?
+        .to_string();
+    let started = value.get("started_at").and_then(|v| v.as_str())?;
+    let parsed = chrono::DateTime::parse_from_rfc3339(started).ok()?;
+    Some((id, parsed.with_timezone(&chrono::Utc)))
 }
 
 #[cfg(feature = "record")]
@@ -327,11 +457,28 @@ fn cmd_watch(args: WatchArgs) -> Result<()> {
     if let Some(spec) = args.roi.as_deref() {
         config.crop = Some(parse_roi(spec)?);
     }
+    if let Some(threshold) = args.tile_change_threshold {
+        config.tile_change_threshold = threshold;
+    }
+    if let Some(ratio) = args.min_area_ratio {
+        config.meaningful_area_ratio = ratio;
+    }
+    if let Some(spec) = args.tile_grid.as_deref() {
+        config.tile_grid = parse_tile_grid(spec)?;
+    }
 
     config.validate().context("invalid configuration")?;
 
-    let sink = DirectorySink::new(&config).context("creating output sink")?;
+    let mut sink = DirectorySink::new(&config).context("creating output sink")?;
     let dir = sink.session().dir.clone();
+
+    // The sink already follows this session's `marks.pending`, so a
+    // `framewatch mark` in another process needs no wiring here.
+    if let Some(path) = args.labels_file.clone() {
+        println!("framewatch: tailing labels from {}", path.display());
+        sink.tail_labels(path);
+    }
+
     println!("framewatch: writing session to {}", dir.display());
     println!("framewatch: press Ctrl+C to stop.");
 

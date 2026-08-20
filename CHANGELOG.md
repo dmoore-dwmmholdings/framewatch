@@ -7,6 +7,27 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-19
+
+### Added
+
+- **Marks: application labels in the timeline.** `framewatch mark --label "<text>"`
+  appends a `kind: "mark"` line to a session's `timeline.jsonl`, safely while
+  `watch` holds the session open, defaulting to the newest session under `--out`.
+  `watch --labels-file <path>` tails a newline-delimited file so an application can
+  emit labels with no extra process per label; a plain line is the label, and a JSON
+  object is kept whole in `data`.
+- **Marks are read at frame time**, not on a background poll, so a label written
+  immediately before a frame lands on that frame rather than the next one. Labels
+  that arrive after the final frame are written when the session closes.
+- **Captioned frames.** A frame that follows one or more marks carries
+  `marks_since_last_frame`, and when exactly one mark preceded it the image is named
+  after the label — `frames/000004_settled_before-checkout.png`. This removes the
+  need for consumers to align a capture clock against an application log.
+- **Sensitivity flags on `watch`.** `--min-area-ratio`, `--tile-change-threshold`,
+  and `--tile-grid` expose the existing detection knobs, so a small change such as a
+  24 px status banner can be made to trip capture without editing a config file.
+
 ## [0.6.0] - 2026-08-16
 
 ### Added
@@ -258,7 +279,8 @@ Initial release.
 - Scenario + golden tests covering static, spinner, volatile, dedup, and the
   full directory-sink pipeline.
 
-[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/dmoore-dwmmholdings/framewatch/compare/v0.4.0...v0.4.1

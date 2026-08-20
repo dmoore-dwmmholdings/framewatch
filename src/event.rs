@@ -285,6 +285,14 @@ pub struct CaptureMeta {
     pub coalesced_frames: u32,
     /// Human/agent-facing note.
     pub note: String,
+    /// Labels the application supplied since the previous captured frame.
+    ///
+    /// Populated by [`DirectorySink`](crate::sink::DirectorySink) from marks that
+    /// arrived while the watcher was running (`framewatch mark`, or a
+    /// `--labels-file` line). Empty — and omitted from the JSON — when nothing
+    /// was marked, which is the usual case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks_since_last_frame: Vec<String>,
 }
 
 /// A capture event: metadata plus an optional encoded image.

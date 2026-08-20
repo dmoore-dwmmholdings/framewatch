@@ -107,8 +107,23 @@ Common knobs (all optional; sensible defaults):
 | `--settle-ms <n>` | `350` | quiescence before declaring "settled" |
 | `--value-sample-ms <n>` | `1000` | throttle for volatile-region samples |
 | `--roi <X,Y,W,H>` | — | **crop** capture + detection + output to a pixel region (clip host chrome / titlebar / menu bar). Coords are relative to the captured frame's top-left. |
+| `--labels-file <path>` | — | tail a newline-delimited file; each line becomes a `mark` event and captions the next frame (§1.5) |
 | `--config <file>` | — | load a `framewatch.toml` base config (flags override it) |
 | `-v`, `-vv` | — | log verbosity (or set `RUST_LOG`) |
+
+**Sensitivity** — the defaults are tuned to ignore noise, which means a small
+change can be coalesced away. A 24 px status banner across the top of a browser
+window is about 3 % of the height and, once tiled, only trips one row:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--min-area-ratio <r>` | `0.002` | fraction of the frame that must change to count as meaningful activity. Lower it for a thin strip. |
+| `--tile-change-threshold <n>` | `12` | per-tile luma delta (0-255) needed to call a tile changed. Lower it for low-contrast changes. |
+| `--tile-grid <COLSxROWS>` | `32x18` | detection grid. A finer grid makes a small change a larger fraction of one tile. |
+
+In practice, try `--roi` first: cropping to the strip you care about makes it
+100 % of the frame and needs no threshold tuning at all. Reach for the knobs
+above when you need the whole window *and* the small change.
 
 `--roi` crops everything downstream: the saved PNGs are just that region, and
 change-detection ignores motion outside it (so e.g. host window chrome won't
@@ -201,7 +216,55 @@ else
 fi
 ```
 
-### 1.4 GUI picker / ROI editor (for humans)
+### 1.4 Label what the application is doing (`mark`, `--labels-file`)
+
+A capture says *when* the window changed. It cannot say what the application
+thought it was doing. Marks close that gap, and they land in the same
+`timeline.jsonl`, so nothing downstream has to align two clocks.
+
+**From a script or an agent**, at any time, including while `watch` is running:
+
+```sh
+distramewatch.exe mark --label "before-checkout"
+distramewatch.exe mark --label "signed-in" --json '{"user":"agent.buyer.01"}'
+```
+
+With no `--session` it targets the newest session under `--out` (default
+`./.framewatch`). The line is appended by `mark` itself, so it survives whether or
+not a watcher is running; a live watcher additionally attaches the label to the
+next frame.
+
+**From the application**, with no extra process per label: append lines to a file
+and let the watcher tail it.
+
+```sh
+distramewatch.exe watch --title "My App" --labels-file ./console.log
+```
+
+Each line becomes one mark. A plain line is the label. A JSON object is kept whole
+in `data`, and its `note`, `label`, or `kind` field becomes the label — so an app
+can append the event objects it already emits without reshaping them. Partial
+lines are held until the newline arrives, and the tail starts at the end of an
+existing file so a re-run does not replay yesterday's labels.
+
+A Playwright bridge is three lines:
+
+```js
+page.on('console', (message) => appendFileSync('console.log', `${message.text()}
+`))
+```
+
+**Timing.** Followed files are read at the moment a frame is captured, so a label
+written before a frame lands on *that* frame, not the one after it. Labels
+arriving after the last frame are still written when the session closes.
+
+**What you get.** The next captured frame carries
+`marks_since_last_frame: ["before-checkout"]`, and when exactly one mark preceded
+it the file is named `frames/000004_settled_before-checkout.png`. Several marks
+before one frame all appear in the array, but the frame keeps its plain name —
+one label is a name, several are ambiguous.
+
+### 1.5 GUI picker / ROI editor (for humans)
 
 ```sh
 dist\framewatch.exe gui
@@ -274,13 +337,34 @@ One object per line. Example (`settled` event):
   "busy": { "active": false, "regions": [{ "label": "test-runner", "active": false }] },
   "timing": { "since_prev_emit_ms": 198, "active_for_ms": 165, "quiescent_for_ms": 165 },
   "coalesced_frames": 5,                      // frames observed & collapsed since prev image
-  "note": "Settled after 0.17s of activity in 0 region(s)."  // human-readable
+  "note": "Settled after 0.17s of activity in 0 region(s).",  // human-readable
+  "marks_since_last_frame": ["before-checkout"]  // app labels, omitted when empty
 }
 ```
 
 Fields that are absent when not applicable are simply omitted (`image` is `null`
 for image-less events; `dhash` / `hamming_to_prev_emit` / `timing.*` appear only
 when known).
+
+**Mark lines.** A line whose `kind` is `"mark"` is an application label, not a
+capture, and carries none of the window/change/busy/image fields:
+
+```jsonc
+{
+  "session_id": "2026-06-14T06-22-17_chrome",
+  "kind": "mark",
+  "wall_time": "2026-06-14T06:22:19.104Z",
+  "elapsed_ms": 1485,
+  "note": "before-checkout",
+  "data": { "kind": "annotation", "seq": 4 }   // present when the label came from JSON
+}
+```
+
+Read them for what the application thought it was doing. When a mark arrived
+while the watcher was running, the *next* frame repeats the label in
+`marks_since_last_frame` and — when exactly one mark preceded it — is named after
+it (`frames/000004_settled_before-checkout.png`). Prefer that to matching
+timestamps yourself.
 
 ### 2.4 Event kinds
 
@@ -293,6 +377,7 @@ when known).
 | `value_sample` | — | A throttled sample of a volatile region (counter/progress). Usually note-only. |
 | `transition_start` | — | Activity began (off by default). |
 | `manual` | ✅ | A user/host-requested capture. |
+| `mark` | — | Not a capture: an application label (see above). |
 
 ### 2.5 `session.json` — manifest
 
@@ -433,6 +518,16 @@ dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --wait 15 --until-
 # one settled frame to a chosen file (launch + capture + kill; prints path, exit code):
 dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --timeout 25
 dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
+
+# label what the app is doing, from anywhere (safe while `watch` runs):
+distramewatch.exe mark --label "before-checkout"
+distramewatch.exe mark --label "signed-in" --session ./.framewatch/2026-06-14T06-22-17_chrome
+
+# let the app write its own labels; the watcher tails the file:
+distramewatch.exe watch --title "My App" --labels-file ./console.log --out ./.framewatch
+
+# notice a small change (a 24px status banner, say) that the defaults coalesce away:
+distramewatch.exe watch --title "My App" --min-area-ratio 0.0005 --tile-change-threshold 8
 
 # record a window to video while narrating, then bundle an LLM package (see §6):
 dist\framewatch.exe record --title "My Game" --duration 60

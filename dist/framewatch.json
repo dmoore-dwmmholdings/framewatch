@@ -1,6 +1,6 @@
 {
   "tool": "framewatch",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents; plus a `record` mode that bundles a narrated screen recording + timestamped transcript into an LLM package.",
   "docs": "docs/AGENT_INTEGRATION.md",
   "codex": {
@@ -42,6 +42,10 @@
         "--settle-ms": "quiescence ms before 'settled' (default 350)",
         "--value-sample-ms": "throttle ms for volatile samples (default 1000)",
         "--roi": "crop capture + detection + output to a pixel region X,Y,W,H (clips host chrome); window.rect still reports the full source window",
+        "--labels-file": "tail a newline-delimited file; each line becomes a mark event and captions the next frame (plain text or a JSON object)",
+        "--tile-change-threshold": "per-tile luma delta needed to count a tile as changed, 0-255 (default 12); lower to notice small or low-contrast changes",
+        "--min-area-ratio": "fraction of the frame that must change to count as meaningful (default 0.002); lower for a thin strip such as a status banner",
+        "--tile-grid": "COLSxROWS detection grid (default 32x18); a finer grid makes a small change a larger fraction of one tile",
         "--config": "path to a framewatch.toml base config (flags override it)"
       },
       "lifecycle_options": {
@@ -52,6 +56,20 @@
       },
       "one_shot_example": "framewatch.exe watch --title \"My App\" --wait 15 --until-settled --out ./.framewatch",
       "stdout_first_line": "framewatch: writing session to <out>/<session_id>"
+    },
+    {
+      "name": "mark",
+      "summary": "Append an application label to a session timeline, captioning the next captured frame.",
+      "invoke": "framewatch.exe mark --label \"<text>\" [--session <dir>] [--out <dir>] [--json <blob>]",
+      "blocking": false,
+      "options": {
+        "--label": "the label text (required)",
+        "--session": "session directory; defaults to the newest session under --out",
+        "--out": "where sessions live when --session is omitted (default ./.framewatch)",
+        "--json": "a JSON blob carried alongside the label"
+      },
+      "stdout": "the path of the timeline.jsonl the mark was appended to",
+      "notes": "Safe to run while `watch` holds the session open. The line is appended by this command, so a mark survives with no watcher running; a live watcher also attaches the label to the next frame."
     },
     {
       "name": "shot",
@@ -159,7 +177,17 @@
       "busy": "{ active, regions:[{ label, active }] }",
       "timing": "{ since_prev_emit_ms?, active_for_ms?, quiescent_for_ms? }",
       "coalesced_frames": "u32 frames collapsed since previous saved image",
-      "note": "human-readable summary"
+      "note": "human-readable summary",
+      "marks_since_last_frame": "string[] application labels supplied since the previous frame; omitted when empty"
+    },
+    "mark_event_fields": {
+      "note": "A timeline line with kind == 'mark' is an application label, not a capture. It has no window/change/busy/image fields.",
+      "kind": "always 'mark'",
+      "session_id": "string session id, when the writer knew it",
+      "wall_time": "RFC3339 UTC timestamp",
+      "elapsed_ms": "u64 ms since session start, when it could be worked out",
+      "note_field": "the label text",
+      "data": "the original JSON object, when the label came from one"
     }
   },
   "consume_algorithm": [
@@ -167,7 +195,8 @@
     "Stream timeline.jsonl line by line (each line is a complete JSON object).",
     "Open images only for events with kind == 'settled' or kind == 'busy_end'.",
     "Use coalesced_frames to know how much activity each saved image represents.",
-    "Use busy_start / value_sample notes for timing context without opening images."
+    "Use busy_start / value_sample notes for timing context without opening images.",
+    "Lines with kind == 'mark' are application labels: read them for what the app thought it was doing, and prefer marks_since_last_frame over matching timestamps yourself."
   ],
   "recording_output": {
     "note": "Produced by the `record` command (see docs section 6 + dist/sample-recording).",
@@ -191,7 +220,7 @@
   },
   "library": {
     "crate": "framewatch",
-    "cargo_dependency": "framewatch = { path = \"../framewatch\", default-features = false }  # or version = \"0.1\" once published",
+    "cargo_dependency": "framewatch = { version = \"0.7\", default-features = false }  # or path = \"../framewatch\" when vendored",
     "live_capture_features": ["wgc"],
     "entry_points": [
       "framewatch::watch(config, sink)",

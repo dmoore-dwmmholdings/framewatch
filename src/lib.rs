@@ -52,6 +52,7 @@ pub mod engine;
 pub mod error;
 pub mod event;
 pub mod frame;
+pub mod mark;
 pub mod recording;
 pub mod session;
 pub mod sink;
@@ -79,10 +80,11 @@ pub use engine::Engine;
 pub use error::{CaptureError, Error, RecordError, SinkError, TranscribeError};
 pub use event::{CaptureEvent, CaptureMeta, EncodedImage, EventKind, ImageFormat, SaveMask};
 pub use frame::{RawFrame, Rect, WindowInfo};
+pub use mark::{MarkRecord, MARK_KIND};
 #[cfg(feature = "record")]
 pub use record::{record, record_with_duration, RecordConfig, RecordOutcome};
 pub use recording::{PackageWriter, Recording, RecordingManifest};
-pub use sink::{ChannelSink, CompositeSink, DirectorySink, Sink};
+pub use sink::{ChannelSink, CompositeSink, DirectorySink, MarkInbox, Sink};
 pub use transcript::{Transcriber, Transcript, TranscriptSegment};
 pub use util::tokenize;
 #[cfg(feature = "record")]

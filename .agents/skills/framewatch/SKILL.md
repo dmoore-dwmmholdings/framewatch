@@ -104,3 +104,89 @@ Consume the result in this order:
 - Stop launched or watched processes on completion. Preserve requested evidence;
   remove scratch captures only when they are no longer needed and deletion is
   authorized.
+
+## Labelling frames from the app under test
+
+A capture says *when* the window changed. It cannot say what the app thought it
+was doing. Marks close that gap, in the same `timeline.jsonl`, so nothing has to
+align two clocks afterwards.
+
+**One label, from anywhere** — safe while `watch` is running:
+
+```bash
+framewatch mark --label "before-checkout"
+framewatch mark --label "signed-in" --json '{"user":"agent.buyer.01"}'
+```
+
+With no `--session` it targets the newest session under `--out` (default
+`./.framewatch`). `mark` appends the line itself, so the label survives even with
+no watcher running.
+
+**A stream of labels, from the app** — no process per label:
+
+```bash
+framewatch watch --title "My App" --labels-file "$TEMP/console.log" --duration 60
+```
+
+Each line becomes one mark. Plain text is the label; a JSON object is kept whole
+in `data`, with its `note`, `label`, or `kind` field used as the label — so an app
+can append the events it already logs. In Playwright the bridge is one line:
+
+```js
+page.on('console', (m) => appendFileSync(logPath, `${m.text()}\n`))
+```
+
+**Timing.** Followed files are read at the moment a frame is captured, so a label
+written before a frame lands on *that* frame, not the one after it. Labels
+arriving after the last frame are still written when the session closes.
+
+**What you get back.** The next captured frame carries
+`marks_since_last_frame: ["before-checkout"]`, and when exactly one mark preceded
+it the image is named after the label:
+
+```
+frames/000004_settled_before-checkout.png
+```
+
+Several marks before one frame all appear in the array, but the frame keeps its
+plain name — one label is a name, several are ambiguous.
+
+## Making a small change trip capture
+
+The defaults ignore noise, which also means a thin strip — a 24 px status banner
+across the top of a browser window — can be coalesced away.
+
+Try `--roi` first: cropping to the strip makes it 100 % of the frame and needs no
+tuning. When you need the whole window *and* the small change:
+
+| Flag | Default | Use it when |
+|---|---|---|
+| `--min-area-ratio <r>` | `0.002` | the change is a small fraction of the frame |
+| `--tile-change-threshold <n>` | `12` | the change is low-contrast |
+| `--tile-grid <COLSxROWS>` | `32x18` | a finer grid makes the change a bigger share of one tile |
+
+```bash
+framewatch watch --title "My App" --min-area-ratio 0.0005 --tile-change-threshold 8
+```
+
+## Recipe: a web app with agent-sandbox
+
+Driving a Firebase app through `@agent-sandbox/client`, whose SDK writes
+`[agent-sandbox] #N …` console lines and puts the session id in the window title:
+
+```bash
+# 1. Mint a session (MCP `create_session`, or the CLI) and open the URL in Chrome.
+# 2. Bridge the page console to a file (Playwright, one line — see above).
+# 3. Watch that lane's window, tailing the same file:
+framewatch watch --title "sbx buyer.01.k3f9" --labels-file "$TEMP/console.log" \
+  --out "$TEMP/fw/buyer.01.k3f9" --settle-ms 250 --duration 300
+```
+
+The window title carries the sandbox id, so several lanes can run at once and
+each watcher finds its own. Frames come back named after the SDK's own events —
+`000004_settled_route.png`, `000006_settled_error.png` — and the timeline holds
+both the labels and the captures in one file.
+
+Keep the window in the **foreground**: Chrome stops painting an occluded window,
+so framewatch sees no change and captures nothing after the first frame.
+
