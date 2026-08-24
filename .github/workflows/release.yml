@@ -10,6 +10,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: "1.96.0"
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 jobs:
   build-macos:
@@ -18,9 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: macos-26
             target: aarch64-apple-darwin
-          - runner: macos-15-intel
+          - runner: macos-26-intel
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
