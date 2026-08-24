@@ -5,6 +5,8 @@
 pub mod mock;
 pub use mock::MockBackend;
 
+#[cfg(all(target_os = "macos", feature = "macos"))]
+pub mod macos;
 #[cfg(all(windows, feature = "wgc"))]
 pub mod windows;
 
@@ -63,17 +65,23 @@ impl CaptureBackend for Box<dyn CaptureBackend> {
 
 /// Enumerate capturable top-level windows.
 ///
-/// Returns an error on platforms/builds without a capture backend (i.e. anything
-/// other than Windows built with the `wgc` feature).
+/// Returns an error on platforms/builds without a capture backend.
 pub fn enumerate_windows() -> Result<Vec<WindowInfo>, CaptureError> {
     #[cfg(all(windows, feature = "wgc"))]
     {
         windows::enumerate::enumerate_windows()
     }
-    #[cfg(not(all(windows, feature = "wgc")))]
+    #[cfg(all(target_os = "macos", feature = "macos"))]
+    {
+        macos::enumerate_windows()
+    }
+    #[cfg(not(any(
+        all(windows, feature = "wgc"),
+        all(target_os = "macos", feature = "macos")
+    )))]
     {
         Err(CaptureError::Backend(
-            "window enumeration requires building on Windows with the `wgc` feature".into(),
+            "window enumeration requires Windows with the `wgc` feature or macOS with the `macos` feature".into(),
         ))
     }
 }

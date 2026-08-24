@@ -320,8 +320,8 @@ impl<C: Clock> Engine<C> {
     }
 
     /// Warn once if a frame is entirely black — the usual symptom of an
-    /// exclusive-fullscreen (DirectX) or DRM-protected target that the Windows
-    /// Graphics Capture API renders as black.
+    /// exclusive-fullscreen or DRM-protected target that the platform capture
+    /// API renders as black.
     fn warn_if_black(&mut self, wf: &WorkingFrame) {
         if self.warned_black {
             return;
@@ -331,7 +331,7 @@ impl<C: Clock> Engine<C> {
             tracing::warn!(
                 "framewatch: captured frame is all-black — the target may be in \
                  exclusive fullscreen or showing DRM-protected content, which the \
-                 Windows Graphics Capture API cannot capture. Try borderless/windowed \
+                 platform capture API cannot capture. Try borderless/windowed \
                  mode, or capture the monitor."
             );
         }

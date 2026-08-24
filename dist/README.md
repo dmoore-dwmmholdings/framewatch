@@ -4,7 +4,8 @@ This folder is the **entry point for another project or agent** to use framewatc
 
 | File | What it is |
 |---|---|
-| `framewatch.exe` | The release binary (built with `cli` + `wgc` + `gui` + `record`). *Not committed to git; produced by the build below.* |
+| `framewatch.exe` | Windows release binary (built with `cli` + `wgc` + `gui` + `record`). *Not committed to git; produced by the build below.* |
+| GitHub Releases | Versioned ZIPs for Windows and macOS (`aarch64-apple-darwin` and `x86_64-apple-darwin`). macOS builds use `cli` + `macos` + `gui` and require macOS 14+. |
 | `framewatch.json` | **Machine-readable manifest** — where the binary is, every command, every flag, and the full output schema. Parse this. |
 | `../.agents/skills/framewatch/` | **Codex skill** — native workflow discovery for capture, inspection, and recording tasks. |
 | `sample-session/` | A real example of what one capture produces (`timeline.jsonl`, `session.json`, `frames/*.png`, `README_FOR_AGENT.md`). |
@@ -29,4 +30,7 @@ dist\framewatch.exe watch --title "Visual Studio Code" --out ./.framewatch
 ```sh
 cargo build --release --features "cli wgc gui record"
 # then copy target/release/framewatch.exe -> dist/framewatch.exe
+
+# macOS 14+ (ScreenCaptureKit)
+cargo build --release --features "cli macos gui"
 ```

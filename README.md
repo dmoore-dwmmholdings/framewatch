@@ -73,6 +73,9 @@ skill discovery details.
 # CLI (Windows live capture):
 cargo install framewatch --features wgc        # add gui for the picker: --features "wgc gui"
 
+# CLI (macOS 14+ live capture; grant Screen Recording permission when prompted):
+cargo install framewatch --features macos      # add gui for the picker: --features "macos gui"
+
 # CLI with narrated recording (also enables wgc; requires ffmpeg on PATH):
 cargo install framewatch --features "wgc record"
 framewatch transcriber setup   # optional preflight; record also runs this automatically
@@ -82,9 +85,9 @@ cargo add framewatch --no-default-features
 ```
 
 > **Platforms.** The detection engine is platform-agnostic and compiles/tests
-> everywhere. The live capture backend is **Windows-only** (Graphics Capture API)
-> and is enabled with the `wgc` feature. macOS/Linux backends are a documented
-> future extension — they just implement the same `CaptureBackend` trait.
+> everywhere. Live capture is available on **Windows** with `wgc` (Windows
+> Graphics Capture) and **macOS 14+** with `macos` (ScreenCaptureKit). macOS
+> requires Screen Recording permission. Linux has no live backend yet.
 
 ## Quickstart (CLI)
 
@@ -214,12 +217,13 @@ detection pipeline is unit-tested without a GPU, screen, or Windows.
 |---|---|---|
 | `cli` | ✅ | the `framewatch` binary (clap) |
 | `wgc` | | Windows Graphics Capture backend + window enumeration |
+| `macos` | | macOS 14+ ScreenCaptureKit backend + window enumeration |
 | `gui` | | eframe/egui window picker & ROI editor |
 | `record` | | `record` subcommand: window video (via `ffmpeg`) + mic (`cpal`) → LLM package |
 | `jpeg` / `webp` | | extra image encoders |
 | `llm` | | reserved: out-of-band vision-caption sink |
 
-The core library pulls **no** Windows or GUI deps unless you opt in.
+The core library pulls **no** platform capture or GUI deps unless you opt in.
 
 ## License
 

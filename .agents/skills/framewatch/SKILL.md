@@ -1,6 +1,6 @@
 ---
 name: framewatch
-description: Capture and inspect meaningful states from Windows application windows with the framewatch CLI. Use when Codex needs screenshots after a UI settles, a compact timeline of UI transitions, repeatable visual checks while developing or testing a desktop app, or a narrated recording package. Do not use for browser pages that existing browser tooling can inspect semantically or for non-Windows live capture.
+description: Capture and inspect meaningful states from Windows or macOS application windows with the framewatch CLI. Use when Codex needs screenshots after a UI settles, a compact timeline of UI transitions, repeatable visual checks while developing or testing a desktop app, or a narrated recording package. Do not use for browser pages that existing browser tooling can inspect semantically.
 ---
 
 # Framewatch
@@ -11,20 +11,23 @@ paths and inspect only the meaningful frames recorded in its timeline.
 ## Resolve the executable
 
 1. Prefer `framewatch` when it is on `PATH`.
-2. In the Framewatch source checkout, try `target/release/framewatch.exe`, then
-   `dist/framewatch.exe`.
+2. In the Framewatch source checkout, try `target/release/framewatch` on macOS
+   or `target/release/framewatch.exe` on Windows, then the equivalent `dist/`
+   path.
 3. Run the candidate's `--version` and top-level `--help`. When the checkout has
    `Cargo.toml` or `dist/framewatch.json`, require the binary version to match
    the package version. Also confirm the requested subcommand appears in help.
-4. If no current candidate exists, install the published Windows CLI with
-   `cargo install framewatch --features wgc`; use
-   `cargo install framewatch --features "wgc record"` when recording is needed.
-   In a source checkout where building is in scope, use
-   `cargo build --release --features "cli wgc"`; add `gui` or `record` for the
-   requested workflow and use `target/release/framewatch.exe`.
+4. If no current candidate exists, install the Windows CLI with
+   `cargo install framewatch --features wgc`, or the macOS 14+ CLI with
+   `cargo install framewatch --features macos`. Use `cargo install framewatch
+   --features "wgc record"` when Windows recording is needed. In a source
+   checkout where building is in scope, use `cargo build --release --features
+   "cli wgc"` on Windows or `cargo build --release --features "cli macos"` on
+   macOS; add `gui` or (Windows only) `record` for the requested workflow.
 
-Do not silently use a stale binary. Live capture requires Windows and the `wgc`
-feature.
+Do not silently use a stale binary. Live capture requires Windows with `wgc`,
+or macOS 14+ with `macos`; macOS requires Screen Recording permission for the
+terminal or app running Framewatch.
 
 For exact flags or schemas, read `docs/AGENT_INTEGRATION.md` and
 `dist/framewatch.json` when they are present in the checkout. Otherwise use the
@@ -189,4 +192,3 @@ both the labels and the captures in one file.
 
 Keep the window in the **foreground**: Chrome stops painting an occluded window,
 so framewatch sees no change and captures nothing after the first frame.
-

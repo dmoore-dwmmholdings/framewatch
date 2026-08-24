@@ -92,20 +92,27 @@ pub use whisper::{ensure_managed_whisper, ManagedWhisper, WHISPER_MODEL, WHISPER
 
 /// Construct the platform default capture backend for `config`.
 ///
-/// On Windows built with the `wgc` feature this resolves `config.target` to a
-/// window and returns the Graphics Capture backend. Elsewhere it returns
-/// [`Error::NoBackend`].
+/// On Windows built with `wgc` or macOS built with `macos`, this resolves
+/// `config.target` to a window and returns the native capture backend.
 pub fn default_backend(config: &Config) -> Result<Box<dyn CaptureBackend>, Error> {
     #[cfg(all(windows, feature = "wgc"))]
     {
         let backend = capture::windows::wgc::WgcBackend::for_target(&config.target)?;
         Ok(Box::new(backend))
     }
-    #[cfg(not(all(windows, feature = "wgc")))]
+    #[cfg(all(target_os = "macos", feature = "macos"))]
+    {
+        let backend = capture::macos::MacosBackend::for_target(&config.target)?;
+        Ok(Box::new(backend))
+    }
+    #[cfg(not(any(
+        all(windows, feature = "wgc"),
+        all(target_os = "macos", feature = "macos")
+    )))]
     {
         let _ = config;
         Err(Error::NoBackend(
-            "live capture requires building on Windows with the `wgc` feature".into(),
+            "live capture requires Windows with the `wgc` feature or macOS with the `macos` feature".into(),
         ))
     }
 }
@@ -263,9 +270,12 @@ mod tests {
         assert_eq!(calls.get(), 1, "non-retryable error returns immediately");
     }
 
-    // Without the wgc backend (default features / non-Windows), backend
-    // construction reports NoBackend rather than panicking.
-    #[cfg(not(all(windows, feature = "wgc")))]
+    // Without a platform backend, construction reports NoBackend rather than
+    // panicking.
+    #[cfg(not(any(
+        all(windows, feature = "wgc"),
+        all(target_os = "macos", feature = "macos")
+    )))]
     #[test]
     fn no_backend_without_wgc() {
         let cfg = Config::builder()

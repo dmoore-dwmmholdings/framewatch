@@ -40,8 +40,8 @@ Framewatch itself; the skill is the reusable integration for operating the tool.
 
 ## 0. Where the binary is
 
-After a release build (`cargo build --release --features "cli wgc gui record"`), the
-binary is copied to:
+Windows release builds use `cargo build --release --features "cli wgc gui record"`
+and place the binary at:
 
 ```
 dist/framewatch.exe
@@ -56,10 +56,11 @@ Verify it:
 dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.6.0
 ```
 
-> **Platform.** Live capture is Windows-only (Graphics Capture API), compiled in
-> via the `wgc` feature. `windows` and `watch` need a real window to capture.
-> On non-Windows builds these commands return a clear "requires the wgc feature"
-> error; the library engine still works everywhere.
+> **Platform.** Live capture uses Windows Graphics Capture on Windows (`wgc`) and
+> ScreenCaptureKit on macOS 14+ (`macos`). On macOS, grant the invoking terminal
+> or app Screen Recording permission in **System Settings → Privacy & Security →
+> Screen & System Audio Recording**. `record` remains Windows-only. The library
+> engine still works everywhere.
 
 ---
 
@@ -442,6 +443,8 @@ framewatch = { path = "../framewatch", default-features = false }
 
 # For live Windows capture, also enable wgc:
 # framewatch = { path = "../framewatch", default-features = false, features = ["wgc"] }
+# For live macOS 14+ capture, enable macos:
+# framewatch = { path = "../framewatch", default-features = false, features = ["macos"] }
 # Once on crates.io:
 # framewatch = { version = "0.1", default-features = false, features = ["wgc"] }
 ```

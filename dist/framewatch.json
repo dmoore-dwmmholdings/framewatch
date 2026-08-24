@@ -1,6 +1,6 @@
 {
   "tool": "framewatch",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Event-driven, change-triggered single-window capture that emits timestamped screenshots + metadata for AI agents; plus a `record` mode that bundles a narrated screen recording + timestamped transcript into an LLM package.",
   "docs": "docs/AGENT_INTEGRATION.md",
   "codex": {
@@ -17,6 +17,23 @@
     "features": ["cli", "wgc", "gui", "record"],
     "version_command": "framewatch.exe --version"
   },
+  "release_assets": [
+    {
+      "archive": "framewatch-x86_64-pc-windows-msvc.zip",
+      "platform": "windows-x86_64",
+      "features": ["cli", "wgc", "gui", "record"]
+    },
+    {
+      "archive": "framewatch-aarch64-apple-darwin.zip",
+      "platform": "macos-aarch64",
+      "features": ["cli", "macos", "gui"]
+    },
+    {
+      "archive": "framewatch-x86_64-apple-darwin.zip",
+      "platform": "macos-x86_64",
+      "features": ["cli", "macos", "gui"]
+    }
+  ],
   "commands": [
     {
       "name": "windows",
@@ -232,5 +249,5 @@
       "framewatch::DirectorySink::new(&config)"
     ]
   },
-  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with the wgc feature. The pure detection engine and sinks compile and run on all platforms."
+  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with the wgc feature or macOS 14+ with the macos feature. macOS requires Screen Recording permission. Recording is Windows-only. The pure detection engine and sinks compile and run on all platforms."
 }
