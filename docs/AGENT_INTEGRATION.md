@@ -459,7 +459,7 @@ framewatch = { path = "../framewatch", default-features = false }
 # For live Linux X11 capture, enable linux-x11:
 # framewatch = { path = "../framewatch", default-features = false, features = ["linux-x11"] }
 # From crates.io (select the live-capture feature for the target platform):
-# framewatch = { version = "0.8.4", default-features = false, features = ["wgc"] }
+# framewatch = { version = "0.8.5", default-features = false, features = ["wgc"] }
 ```
 
 ### 4.1 One-call convenience

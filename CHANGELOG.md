@@ -7,6 +7,13 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-08-24
+
+### Fixed
+
+- **Linux X11 build.** Flatten the optional `_NET_WM_PID` property before using
+  it to resolve a process name, restoring compilation with `linux-x11`.
+
 ## [0.8.4] - 2026-08-24
 
 ### Fixed

@@ -189,6 +189,7 @@ fn window_info(
     let (instance, class) = wm_class(conn, window).unwrap_or_default();
     let exe = property_u32(conn, window, atom(conn, "_NET_WM_PID")?)
         .ok()
+        .flatten()
         .and_then(process_name)
         .unwrap_or(instance);
     Ok(WindowInfo {
