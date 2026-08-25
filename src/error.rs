@@ -111,7 +111,9 @@ pub enum RecordError {
     Capture(#[from] CaptureError),
 
     /// Recording is not available on this platform / build.
-    #[error("recording requires a Windows build with the `record` feature")]
+    #[error(
+        "recording requires Windows with `wgc`, macOS with `macos`, or Linux X11 with `linux-x11`, plus the `record` feature"
+    )]
     Unsupported,
 
     /// I/O error (spawning ffmpeg, writing temp files, …).

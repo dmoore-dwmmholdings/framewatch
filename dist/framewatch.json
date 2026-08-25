@@ -26,12 +26,17 @@
     {
       "archive": "framewatch-aarch64-apple-darwin.zip",
       "platform": "macos-aarch64",
-      "features": ["cli", "macos", "gui"]
+      "features": ["cli", "macos", "gui", "record"]
     },
     {
       "archive": "framewatch-x86_64-apple-darwin.zip",
       "platform": "macos-x86_64",
-      "features": ["cli", "macos", "gui"]
+      "features": ["cli", "macos", "gui", "record"]
+    },
+    {
+      "archive": "framewatch-x86_64-unknown-linux-gnu.tar.gz",
+      "platform": "linux-x86_64-x11",
+      "features": ["cli", "linux-x11", "gui", "record"]
     }
   ],
   "commands": [
@@ -238,7 +243,7 @@
   "library": {
     "crate": "framewatch",
     "cargo_dependency": "framewatch = { version = \"0.7\", default-features = false }  # or path = \"../framewatch\" when vendored",
-    "live_capture_features": ["wgc"],
+    "live_capture_features": ["wgc", "macos", "linux-x11"],
     "entry_points": [
       "framewatch::watch(config, sink)",
       "framewatch::record_with_duration(config, duration)",
@@ -249,5 +254,5 @@
       "framewatch::DirectorySink::new(&config)"
     ]
   },
-  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with the wgc feature or macOS 14+ with the macos feature. macOS requires Screen Recording permission. Recording is Windows-only. The pure detection engine and sinks compile and run on all platforms."
+  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with wgc, macOS 14+ with macos, or a Linux X11 session with linux-x11 and DISPLAY set. Wayland needs a separate user-approved XDG Desktop Portal backend and is not yet supported. macOS requires Screen Recording permission. Recording requires Windows with wgc, macOS with macos, or Linux X11 with linux-x11, plus the record feature and ffmpeg on PATH. The pure detection engine and sinks compile and run on all platforms."
 }

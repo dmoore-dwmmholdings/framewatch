@@ -1,6 +1,6 @@
 ---
 name: framewatch
-description: Capture and inspect meaningful states from Windows or macOS application windows with the framewatch CLI. Use when Codex needs screenshots after a UI settles, a compact timeline of UI transitions, repeatable visual checks while developing or testing a desktop app, or a narrated recording package. Do not use for browser pages that existing browser tooling can inspect semantically.
+description: Capture and inspect meaningful states from Windows, macOS, or Linux X11 application windows with the framewatch CLI. Use when Codex needs screenshots after a UI settles, a compact timeline of UI transitions, repeatable visual checks while developing or testing a desktop app, or a narrated recording package. Do not use for browser pages that existing browser tooling can inspect semantically.
 ---
 
 # Framewatch
@@ -19,15 +19,21 @@ paths and inspect only the meaningful frames recorded in its timeline.
    the package version. Also confirm the requested subcommand appears in help.
 4. If no current candidate exists, install the Windows CLI with
    `cargo install framewatch --features wgc`, or the macOS 14+ CLI with
-   `cargo install framewatch --features macos`. Use `cargo install framewatch
-   --features "wgc record"` when Windows recording is needed. In a source
+   `cargo install framewatch --features macos`, or the Linux X11 CLI with
+   `cargo install framewatch --features linux-x11`. Use `cargo install framewatch
+   --features "wgc record"` when Windows recording is needed, or
+   `--features "macos record"` for macOS recording, or
+   `--features "linux-x11 record"` for Linux X11 recording. In a source
    checkout where building is in scope, use `cargo build --release --features
-   "cli wgc"` on Windows or `cargo build --release --features "cli macos"` on
-   macOS; add `gui` or (Windows only) `record` for the requested workflow.
+   "cli wgc"` on Windows, `cargo build --release --features "cli macos"` on
+   macOS, or `cargo build --release --features "cli linux-x11"` on Linux X11;
+   add `gui` or `record` for the requested workflow.
 
 Do not silently use a stale binary. Live capture requires Windows with `wgc`,
-or macOS 14+ with `macos`; macOS requires Screen Recording permission for the
-terminal or app running Framewatch.
+macOS 14+ with `macos`, or Linux X11 with `linux-x11` and `DISPLAY` set. Wayland
+is not supported yet because it needs an XDG Desktop Portal capture flow.
+macOS requires Screen Recording permission for the terminal or app running
+Framewatch, plus Microphone permission for narrated recordings.
 
 For exact flags or schemas, read `docs/AGENT_INTEGRATION.md` and
 `dist/framewatch.json` when they are present in the checkout. Otherwise use the

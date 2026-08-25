@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "toolchains": {
+    "rust": "1.88"
+  },
+  "environment": {
+    "CARGO_TERM_COLOR": "always"
+  },
+  "setup": [
+    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libasound2-dev libgomp1",
+    "cargo fetch --locked"
+  ]
+}

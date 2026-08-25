@@ -5,7 +5,8 @@ This folder is the **entry point for another project or agent** to use framewatc
 | File | What it is |
 |---|---|
 | `framewatch.exe` | Windows release binary (built with `cli` + `wgc` + `gui` + `record`). *Not committed to git; produced by the build below.* |
-| GitHub Releases | Versioned ZIPs for Windows and macOS (`aarch64-apple-darwin` and `x86_64-apple-darwin`). macOS builds use `cli` + `macos` + `gui` and require macOS 14+. |
+| GitHub Releases | Versioned archives for Windows, macOS (`aarch64-apple-darwin` and `x86_64-apple-darwin`), and Linux X11 (`x86_64-unknown-linux-gnu`). macOS builds use `cli` + `macos` + `gui` + `record` and require macOS 14+. |
+| Linux X11 | Development builds use `cli` + `linux-x11`; an X11 session with `DISPLAY` is required. Wayland is not supported yet. |
 | `framewatch.json` | **Machine-readable manifest** — where the binary is, every command, every flag, and the full output schema. Parse this. |
 | `../.agents/skills/framewatch/` | **Codex skill** — native workflow discovery for capture, inspection, and recording tasks. |
 | `sample-session/` | A real example of what one capture produces (`timeline.jsonl`, `session.json`, `frames/*.png`, `README_FOR_AGENT.md`). |
@@ -33,4 +34,7 @@ cargo build --release --features "cli wgc gui record"
 
 # macOS 14+ (ScreenCaptureKit)
 cargo build --release --features "cli macos gui"
+
+# Linux X11
+cargo build --release --features "cli linux-x11 gui record"
 ```

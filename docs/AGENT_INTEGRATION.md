@@ -21,8 +21,8 @@ The repository ships a Codex skill at
 [`../.agents/skills/framewatch/SKILL.md`](../.agents/skills/framewatch/SKILL.md).
 Codex discovers repository skills under `.agents/skills`, so the workflow is
 available automatically when Codex opens this checkout. Invoke it explicitly as
-`$framewatch` or ask Codex to capture, inspect, or record a Windows application
-window.
+`$framewatch` or ask Codex to capture, inspect, or record a Windows, macOS, or
+Linux X11 application window.
 
 For use from a different repository:
 
@@ -40,7 +40,9 @@ Framewatch itself; the skill is the reusable integration for operating the tool.
 
 ## 0. Where the binary is
 
-Windows release builds use `cargo build --release --features "cli wgc gui record"`
+Windows release builds use `cargo build --release --features "cli wgc gui record"`;
+macOS release builds use `cargo build --release --features "cli macos gui record"`.
+For Linux X11 development builds, use `cargo build --release --features "cli linux-x11 gui record"`.
 and place the binary at:
 
 ```
@@ -56,10 +58,18 @@ Verify it:
 dist\framewatch.exe --version      # prints the crate version, e.g. framewatch 0.6.0
 ```
 
-> **Platform.** Live capture uses Windows Graphics Capture on Windows (`wgc`) and
-> ScreenCaptureKit on macOS 14+ (`macos`). On macOS, grant the invoking terminal
+> **Platform.** Live capture uses Windows Graphics Capture on Windows (`wgc`),
+> ScreenCaptureKit on macOS 14+ (`macos`), and X11 on Linux (`linux-x11`). The
+> Linux backend requires an X11 session with `DISPLAY` set; Wayland is not yet
+> supported because arbitrary per-window capture requires a user-approved XDG
+> Desktop Portal flow. On macOS, grant the invoking terminal
 > or app Screen Recording permission in **System Settings → Privacy & Security →
-> Screen & System Audio Recording**. `record` remains Windows-only. The library
+> Screen & System Audio Recording**. On macOS, narrated recordings also require
+> **Microphone** permission. `record` is available on Windows (`wgc`), macOS
+> (`macos`), and Linux X11 (`linux-x11`); all require `ffmpeg` on `PATH`.
+> Linux's managed Whisper runtime also needs the distribution OpenMP runtime
+> (for example, `libgomp1` on Debian/Ubuntu).
+> The library
 > engine still works everywhere.
 
 ---
@@ -432,7 +442,8 @@ Run it: `framewatch.exe watch --config framewatch.toml`.
 ## 4. Embedding as a Rust library
 
 Add framewatch as a path/git dependency. The **core engine + sinks pull no
-Windows or GUI deps**; opt into live capture with the `wgc` feature.
+platform capture or GUI deps**; opt into live capture with the appropriate
+platform feature.
 
 ```toml
 # Cargo.toml of the consuming project
@@ -445,6 +456,8 @@ framewatch = { path = "../framewatch", default-features = false }
 # framewatch = { path = "../framewatch", default-features = false, features = ["wgc"] }
 # For live macOS 14+ capture, enable macos:
 # framewatch = { path = "../framewatch", default-features = false, features = ["macos"] }
+# For live Linux X11 capture, enable linux-x11:
+# framewatch = { path = "../framewatch", default-features = false, features = ["linux-x11"] }
 # Once on crates.io:
 # framewatch = { version = "0.1", default-features = false, features = ["wgc"] }
 ```
@@ -461,7 +474,7 @@ let config = Config::builder()
     .build()?;
 
 let sink = DirectorySink::new(&config)?;     // writes the session directory
-framewatch::watch(config, sink)?;            // blocks until window closes (needs `wgc`)
+framewatch::watch(config, sink)?;            // blocks until window closes (needs a platform capture feature)
 ```
 
 ### 4.2 Drive the loop yourself / use a custom sink
@@ -471,7 +484,7 @@ use framewatch::{Config, Target, Engine, CaptureBackend, ControlFlow, Sink, Chan
 
 let config = Config::builder().target(Target::ByExe("Code.exe".into())).build()?;
 let mut engine  = Engine::new(config.clone(), SystemClock);
-let mut backend = framewatch::default_backend(&config)?;   // WGC on Windows + wgc
+let mut backend = framewatch::default_backend(&config)?;   // native backend selected by platform feature
 let (mut sink, rx) = ChannelSink::unbounded();              // receive events in your app
 
 backend.run(&mut |frame| {
@@ -547,19 +560,24 @@ dist\framewatch.exe record --title "My Game" --duration 60
 `record` is the opposite of `watch`: instead of a deduped story of "money frames",
 it **continuously records** one window to video while the user narrates into the
 microphone, then transcribes the narration locally and writes a package an LLM
-can act on. Build with `--features "wgc record"`; **`ffmpeg` must be on PATH**.
+can act on. Build with `--features "wgc record"` on Windows, `--features
+"macos record"` on macOS, or `--features "linux-x11 record"` on Linux X11;
+**`ffmpeg` must be on PATH**.
 
 For a crates.io installation that includes this subcommand, use:
 
 ```sh
-cargo install framewatch --features "wgc record"
+cargo install framewatch --features "wgc record" # macOS: "macos record"; Linux X11: "linux-x11 record"
 framewatch transcriber setup   # optional preflight; record also provisions automatically
 ```
 
 No separate speech-to-text setup is required. The first recording that needs a
 transcript automatically downloads the pinned whisper.cpp runtime and `base.en`
 model (~150 MiB) into the user cache, verifies SHA-256 checksums, and reuses them
-for later recordings. Set `FRAMEWATCH_WHISPER_DIR` to override the cache parent,
+for later recordings. Windows and Linux use the matching upstream x64/ARM64
+runtime; macOS downloads the matching Framewatch-published ARM64 or x86_64
+runtime. Set
+`FRAMEWATCH_WHISPER_DIR` to override the cache parent,
 use `--no-transcribe` to skip setup/transcription, or use `--transcribe-cmd` to
 override the managed engine.
 
@@ -674,5 +692,6 @@ path; if neither placeholder appears, the WAV path is appended and framewatch re
 the command's **stdout**. The command must emit **framewatch transcript JSON**
 (`{ "segments": [...] }`) or **SubRip (SRT)** — framewatch detects which.
 
-A live recording (real window + mic + ffmpeg) is Windows-only; the transcript /
-package / prompt code is pure and runs everywhere.
+A live recording (real window + mic + ffmpeg) is available on Windows, macOS
+14+, and Linux X11. The transcript / package / prompt code is pure and runs
+everywhere.

@@ -245,7 +245,7 @@ impl FrameWatchApp {
     fn draw_preview(&mut self, ui: &mut egui::Ui) {
         let Some(tex) = self.texture.clone() else {
             ui.centered_and_justified(|ui| {
-                ui.label("No preview. Select a window (live capture needs the `wgc` feature).");
+                ui.label("No preview. Select a window (enable `wgc`, `macos`, or `linux-x11` for live capture).");
             });
             return;
         };

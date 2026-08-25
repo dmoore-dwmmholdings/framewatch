@@ -8,16 +8,16 @@ use crate::config::Target;
 use crate::error::CaptureError;
 use crate::frame::{RawFrame, Rect, WindowInfo};
 use chrono::Utc;
+use crossbeam_channel::{bounded, RecvTimeoutError};
+use screencapturekit::cm::CMSampleBufferExt;
+use screencapturekit::cv::CVPixelBufferLockFlags;
 use screencapturekit::prelude::*;
-use screencapturekit::screenshot_manager::{CGImageExt, SCScreenshotManager};
 use screencapturekit::shareable_content::{SCShareableContent, SCWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
-
-/// A polling backend for one ScreenCaptureKit window target.
+/// A streaming backend for one ScreenCaptureKit window target.
 pub struct MacosBackend {
     filter: SCContentFilter,
     configuration: SCStreamConfiguration,
@@ -55,6 +55,11 @@ impl MacosBackend {
             stop: Arc::new(AtomicBool::new(false)),
         })
     }
+
+    /// Metadata for the resolved target window.
+    pub fn window(&self) -> &WindowInfo {
+        &self.info
+    }
 }
 
 /// Enumerate visible non-desktop windows exposed by ScreenCaptureKit.
@@ -73,32 +78,31 @@ impl CaptureBackend for MacosBackend {
         on_frame: &mut dyn FnMut(RawFrame) -> ControlFlow,
     ) -> Result<(), CaptureError> {
         self.stop.store(false, Ordering::Relaxed);
-        while !self.stop.load(Ordering::Relaxed) {
-            let image = SCScreenshotManager::capture_image(&self.filter, &self.configuration)
-                .map_err(platform_error)?;
-            let width = image
-                .width()
-                .try_into()
-                .map_err(|_| CaptureError::Backend("macOS screenshot width exceeds u32".into()))?;
-            let height = image
-                .height()
-                .try_into()
-                .map_err(|_| CaptureError::Backend("macOS screenshot height exceeds u32".into()))?;
-            let bgra = image.bgra_data().map_err(platform_error)?;
-            let frame = RawFrame::from_bgra(
-                bgra,
-                width,
-                height,
-                Instant::now(),
-                Utc::now(),
-                self.info.clone(),
-            );
-            if on_frame(frame) == ControlFlow::Stop {
-                break;
+        let (tx, rx) = bounded(8);
+        let handler = FrameHandler {
+            tx,
+            window: self.info.clone(),
+        };
+        let mut stream = SCStream::new(&self.filter, &self.configuration);
+        stream.add_output_handler(handler, SCStreamOutputType::Screen);
+        stream.start_capture().map_err(platform_error)?;
+
+        let result = loop {
+            if self.stop.load(Ordering::Relaxed) {
+                break Ok(());
             }
-            std::thread::sleep(POLL_INTERVAL);
-        }
-        Ok(())
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(frame) if on_frame(frame) == ControlFlow::Stop => break Ok(()),
+                Ok(_) | Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    break Err(CaptureError::Backend(
+                        "macOS capture stream stopped unexpectedly".into(),
+                    ));
+                }
+            }
+        };
+        let stop_result = stream.stop_capture().map_err(platform_error);
+        result.and(stop_result)
     }
 
     fn stop(&mut self) {
@@ -110,10 +114,50 @@ impl CaptureBackend for MacosBackend {
     }
 }
 
+/// Copies ScreenCaptureKit's transient pixel buffers into `RawFrame`s before
+/// returning control to the framework callback.
+struct FrameHandler {
+    tx: crossbeam_channel::Sender<RawFrame>,
+    window: WindowInfo,
+}
+
+impl SCStreamOutputTrait for FrameHandler {
+    fn did_output_sample_buffer(&self, sample: CMSampleBuffer, kind: SCStreamOutputType) {
+        if !matches!(kind, SCStreamOutputType::Screen) {
+            return;
+        }
+        let Some(pixel_buffer) = sample.image_buffer() else {
+            return;
+        };
+        let Ok(guard) = pixel_buffer.lock(CVPixelBufferLockFlags::READ_ONLY) else {
+            return;
+        };
+        let Ok(width) = guard.width().try_into() else {
+            return;
+        };
+        let Ok(height) = guard.height().try_into() else {
+            return;
+        };
+        let Ok(stride) = guard.bytes_per_row().try_into() else {
+            return;
+        };
+        let bytes = guard.as_slice().to_vec();
+        let frame = RawFrame {
+            buffer: bytes.into(),
+            width,
+            height,
+            stride,
+            captured_at: Instant::now(),
+            wall_time: Utc::now(),
+            window: self.window.clone(),
+        };
+        let _ = self.tx.try_send(frame);
+    }
+}
+
 fn shareable_content() -> Result<SCShareableContent, CaptureError> {
-    // ScreenCaptureKit's screenshot manager is also used by the command-line
-    // binary, where AppKit has not otherwise initialized a connection to the
-    // WindowServer. Initialize it before the first ScreenCaptureKit call.
+    // The command-line binary has not otherwise initialized a connection to
+    // WindowServer. Initialize AppKit before the first ScreenCaptureKit call.
     unsafe {
         let _ = NSApplicationLoad();
     }

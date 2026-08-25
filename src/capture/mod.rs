@@ -1,10 +1,12 @@
 //! Capture backends: the [`CaptureBackend`] trait, window enumeration, and the
-//! cross-platform [`MockBackend`]. The live Windows Graphics Capture backend
-//! lives under the `windows` submodule (gated on `cfg(windows)` + the `wgc` feature).
+//! cross-platform [`MockBackend`]. Native live capture is implemented behind
+//! platform features: Windows Graphics Capture, ScreenCaptureKit, and X11.
 
 pub mod mock;
 pub use mock::MockBackend;
 
+#[cfg(all(target_os = "linux", feature = "linux-x11"))]
+pub mod linux;
 #[cfg(all(target_os = "macos", feature = "macos"))]
 pub mod macos;
 #[cfg(all(windows, feature = "wgc"))]
@@ -75,13 +77,18 @@ pub fn enumerate_windows() -> Result<Vec<WindowInfo>, CaptureError> {
     {
         macos::enumerate_windows()
     }
+    #[cfg(all(target_os = "linux", feature = "linux-x11"))]
+    {
+        linux::enumerate_windows()
+    }
     #[cfg(not(any(
         all(windows, feature = "wgc"),
-        all(target_os = "macos", feature = "macos")
+        all(target_os = "macos", feature = "macos"),
+        all(target_os = "linux", feature = "linux-x11")
     )))]
     {
         Err(CaptureError::Backend(
-            "window enumeration requires Windows with the `wgc` feature or macOS with the `macos` feature".into(),
+            "window enumeration requires Windows with `wgc`, macOS with `macos`, or an X11 Linux session with `linux-x11`".into(),
         ))
     }
 }

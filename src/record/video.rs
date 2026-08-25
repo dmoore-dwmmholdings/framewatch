@@ -1,12 +1,11 @@
-//! Windows video capture for `record`: drive the WGC backend continuously,
+//! Platform video capture for `record`: drive the native backend continuously,
 //! conform every frame to locked dimensions and tight rows, and publish the
 //! latest frame into a single-slot mailbox the pacing loop reads.
 
-use crate::capture::windows::wgc::WgcBackend;
 use crate::capture::{CaptureBackend, ControlFlow};
 use crate::config::Target;
 use crate::error::{CaptureError, RecordError};
-use crate::frame::{RawFrame, Rect};
+use crate::frame::{RawFrame, Rect, WindowInfo};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -18,6 +17,12 @@ pub(crate) type FrameMailbox = Arc<Mutex<Option<Arc<[u8]>>>>;
 
 /// Locked `(width, height)` publication, signalled once the first frame lands.
 pub(crate) type DimsCell = Arc<(Mutex<Option<(u32, u32)>>, Condvar)>;
+
+/// A target resolved to a platform capture backend and its stable metadata.
+pub(crate) struct ResolvedBackend {
+    pub(crate) backend: Box<dyn CaptureBackend + Send>,
+    pub(crate) window: WindowInfo,
+}
 
 /// Round a captured dimension up to an even value for H.264/yuv420p. Real
 /// windows and user crops can be odd-sized, but libx264 rejects odd output
@@ -56,12 +61,15 @@ pub(crate) fn conform_frame(frame: &RawFrame, lock_w: u32, lock_h: u32, out: &mu
     }
 }
 
-/// Resolve `target` to a WGC backend, retrying for up to `wait_ms` while the
-/// window is merely absent (not yet launched).
-pub(crate) fn resolve_wgc(target: &Target, wait_ms: u64) -> Result<WgcBackend, RecordError> {
+/// Resolve `target` to the native continuous backend, retrying for up to
+/// `wait_ms` while the window is merely absent (not yet launched).
+pub(crate) fn resolve_backend(
+    target: &Target,
+    wait_ms: u64,
+) -> Result<ResolvedBackend, RecordError> {
     let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {
-        match WgcBackend::for_target(target) {
+        match resolve_once(target) {
             Ok(b) => return Ok(b),
             Err(CaptureError::TargetNotFound(_)) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(250));
@@ -69,6 +77,47 @@ pub(crate) fn resolve_wgc(target: &Target, wait_ms: u64) -> Result<WgcBackend, R
             Err(e) => return Err(RecordError::Capture(e)),
         }
     }
+}
+
+#[cfg(not(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+)))]
+fn resolve_once(_target: &Target) -> Result<ResolvedBackend, CaptureError> {
+    Err(CaptureError::Backend(
+        "recording has no live capture backend on this platform".into(),
+    ))
+}
+
+#[cfg(all(windows, feature = "wgc"))]
+fn resolve_once(target: &Target) -> Result<ResolvedBackend, CaptureError> {
+    let backend = crate::capture::windows::wgc::WgcBackend::for_target(target)?;
+    let window = backend.window().clone();
+    Ok(ResolvedBackend {
+        backend: Box::new(backend),
+        window,
+    })
+}
+
+#[cfg(all(target_os = "macos", feature = "macos"))]
+fn resolve_once(target: &Target) -> Result<ResolvedBackend, CaptureError> {
+    let backend = crate::capture::macos::MacosBackend::for_target(target)?;
+    let window = backend.window().clone();
+    Ok(ResolvedBackend {
+        backend: Box::new(backend),
+        window,
+    })
+}
+
+#[cfg(all(target_os = "linux", feature = "linux-x11"))]
+fn resolve_once(target: &Target) -> Result<ResolvedBackend, CaptureError> {
+    let backend = crate::capture::linux::X11Backend::for_target(target)?;
+    let window = backend.window().clone();
+    Ok(ResolvedBackend {
+        backend: Box::new(backend),
+        window,
+    })
 }
 
 /// Block until the first frame publishes locked dimensions, the `stop` flag is
@@ -96,15 +145,16 @@ pub(crate) fn wait_for_dims(
     *guard
 }
 
-/// Run the WGC backend to completion, publishing each frame into `mailbox`.
+/// Run the native live-capture backend to completion, publishing each frame
+/// into `mailbox`.
 ///
 /// The first frame locks the recording dimensions (after the optional `crop`),
 /// records its capture instant into `v0` (for A/V sync), and signals `dims`.
 /// Subsequent frames are conformed to the locked size. Returns when `stop` is
 /// observed or the window closes. Always sets `stop` and wakes `dims` before
 /// returning so the pacing/first-frame waiters cannot outlive the capture.
-pub(crate) fn run_capture<B: CaptureBackend>(
-    mut backend: B,
+pub(crate) fn run_capture(
+    mut backend: Box<dyn CaptureBackend + Send>,
     crop: Option<Rect>,
     mailbox: FrameMailbox,
     dims: DimsCell,
@@ -228,7 +278,9 @@ mod tests {
 
     #[test]
     fn capture_completion_stops_consumers_and_publishes_even_dimensions() {
-        let backend = crate::capture::MockBackend::new(vec![frame(641, 481, 0x44)]);
+        let backend: Box<dyn CaptureBackend + Send> = Box::new(crate::capture::MockBackend::new(
+            vec![frame(641, 481, 0x44)],
+        ));
         let mailbox: FrameMailbox = Arc::new(Mutex::new(None));
         let dims: DimsCell = Arc::new((Mutex::new(None), Condvar::new()));
         let v0 = Arc::new(Mutex::new(None));

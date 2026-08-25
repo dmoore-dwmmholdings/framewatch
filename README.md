@@ -76,7 +76,12 @@ cargo install framewatch --features wgc        # add gui for the picker: --featu
 # CLI (macOS 14+ live capture; grant Screen Recording permission when prompted):
 cargo install framewatch --features macos      # add gui for the picker: --features "macos gui"
 
-# CLI with narrated recording (also enables wgc; requires ffmpeg on PATH):
+# CLI (Linux X11 session; DISPLAY must be set):
+cargo install framewatch --features linux-x11
+
+# CLI with narrated recording (requires ffmpeg on PATH):
+# Windows: --features "wgc record"; macOS 14+: --features "macos record";
+# Linux X11: --features "linux-x11 record"
 cargo install framewatch --features "wgc record"
 framewatch transcriber setup   # optional preflight; record also runs this automatically
 
@@ -86,8 +91,13 @@ cargo add framewatch --no-default-features
 
 > **Platforms.** The detection engine is platform-agnostic and compiles/tests
 > everywhere. Live capture is available on **Windows** with `wgc` (Windows
-> Graphics Capture) and **macOS 14+** with `macos` (ScreenCaptureKit). macOS
-> requires Screen Recording permission. Linux has no live backend yet.
+> Graphics Capture), **macOS 14+** with `macos` (ScreenCaptureKit), and an
+> **X11 Linux** session with `linux-x11`. macOS requires Screen Recording
+> permission; `record` with narration also requires Microphone permission.
+> Wayland is not supported yet: its security model requires a separately
+> implemented, user-approved XDG Desktop Portal capture flow.
+> Linux narrated recording also needs `ffmpeg` and the OpenMP runtime provided
+> by the distribution (for example, `libgomp1` on Debian/Ubuntu).
 
 ## Quickstart (CLI)
 
@@ -108,8 +118,10 @@ framewatch watch --config framewatch.toml
 ## Record & narrate → an LLM package (V4)
 
 Sometimes you don't want a deduped story — you want to *show and tell*. The
-`record` subcommand (install with `--features "wgc record"`, needs `ffmpeg` on
-PATH) **continuously** records one window to video while you narrate into the
+`record` subcommand (install with `--features "wgc record"` on Windows,
+`--features "macos record"` on macOS, or `--features "linux-x11 record"` on
+Linux X11; needs `ffmpeg` on PATH) **continuously**
+records one window to video while you narrate into the
 microphone, then transcribes the narration locally and bundles everything an LLM
 needs to act on it. On first use, Framewatch automatically downloads a pinned,
 checksum-verified whisper.cpp runtime and `base.en` model (~150 MiB) into the
@@ -218,6 +230,7 @@ detection pipeline is unit-tested without a GPU, screen, or Windows.
 | `cli` | ✅ | the `framewatch` binary (clap) |
 | `wgc` | | Windows Graphics Capture backend + window enumeration |
 | `macos` | | macOS 14+ ScreenCaptureKit backend + window enumeration |
+| `linux-x11` | | Linux X11 per-window capture + window enumeration |
 | `gui` | | eframe/egui window picker & ROI editor |
 | `record` | | `record` subcommand: window video (via `ffmpeg`) + mic (`cpal`) → LLM package |
 | `jpeg` / `webp` | | extra image encoders |

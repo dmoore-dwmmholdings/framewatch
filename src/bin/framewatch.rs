@@ -382,7 +382,9 @@ fn cmd_transcriber(args: TranscriberArgs) -> Result<()> {
 fn cmd_transcriber(_args: TranscriberArgs) -> Result<()> {
     anyhow::bail!(
         "managed transcription requires the `record` feature. Reinstall with \
-         `cargo install framewatch --features \"wgc record\"`."
+         `cargo install framewatch --features \"wgc record\"` on Windows, \
+         `cargo install framewatch --features \"macos record\"` on macOS, or \
+         `cargo install framewatch --features \"linux-x11 record\"` on Linux X11."
     )
 }
 
@@ -821,7 +823,9 @@ fn cmd_record(args: RecordArgs) -> Result<()> {
 fn cmd_record(_args: RecordArgs) -> Result<()> {
     anyhow::bail!(
         "this build has no recording support. Reinstall with \
-         `cargo install framewatch --features \"cli wgc record\"` (Windows; needs ffmpeg on PATH)."
+         `cargo install framewatch --features \"cli wgc record\"` (Windows), \
+         `cargo install framewatch --features \"cli macos record\"` (macOS), or \
+         `cargo install framewatch --features \"cli linux-x11 record\"` (Linux X11; all need ffmpeg on PATH)."
     )
 }
 
@@ -839,7 +843,7 @@ fn cmd_gui(args: GuiArgs) -> Result<()> {
 fn cmd_gui(_args: GuiArgs) -> Result<()> {
     anyhow::bail!(
         "this build has no GUI. Reinstall with `cargo install framewatch --features gui` \
-         (and `wgc` on Windows for live capture)."
+         plus the platform live-capture feature (`wgc`, `macos`, or `linux-x11`)."
     );
 }
 

@@ -92,8 +92,8 @@ pub use whisper::{ensure_managed_whisper, ManagedWhisper, WHISPER_MODEL, WHISPER
 
 /// Construct the platform default capture backend for `config`.
 ///
-/// On Windows built with `wgc` or macOS built with `macos`, this resolves
-/// `config.target` to a window and returns the native capture backend.
+/// On Windows built with `wgc`, macOS built with `macos`, or X11 Linux built
+/// with `linux-x11`, this resolves `config.target` to a native capture backend.
 pub fn default_backend(config: &Config) -> Result<Box<dyn CaptureBackend>, Error> {
     #[cfg(all(windows, feature = "wgc"))]
     {
@@ -105,14 +105,20 @@ pub fn default_backend(config: &Config) -> Result<Box<dyn CaptureBackend>, Error
         let backend = capture::macos::MacosBackend::for_target(&config.target)?;
         Ok(Box::new(backend))
     }
+    #[cfg(all(target_os = "linux", feature = "linux-x11"))]
+    {
+        let backend = capture::linux::X11Backend::for_target(&config.target)?;
+        Ok(Box::new(backend))
+    }
     #[cfg(not(any(
         all(windows, feature = "wgc"),
-        all(target_os = "macos", feature = "macos")
+        all(target_os = "macos", feature = "macos"),
+        all(target_os = "linux", feature = "linux-x11")
     )))]
     {
         let _ = config;
         Err(Error::NoBackend(
-            "live capture requires Windows with the `wgc` feature or macOS with the `macos` feature".into(),
+            "live capture requires Windows with `wgc`, macOS with `macos`, or an X11 Linux session with `linux-x11`".into(),
         ))
     }
 }
@@ -274,10 +280,11 @@ mod tests {
     // panicking.
     #[cfg(not(any(
         all(windows, feature = "wgc"),
-        all(target_os = "macos", feature = "macos")
+        all(target_os = "macos", feature = "macos"),
+        all(target_os = "linux", feature = "linux-x11")
     )))]
     #[test]
-    fn no_backend_without_wgc() {
+    fn no_backend_without_platform_feature() {
         let cfg = Config::builder()
             .target(Target::ByExe("x.exe".into()))
             .build()

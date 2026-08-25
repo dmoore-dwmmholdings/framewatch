@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - name: Install Linux recording build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev libgomp1
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -45,6 +47,12 @@ jobs:
 
       - name: Test (no default features)
         run: cargo test --no-default-features
+
+      - name: Clippy (gui + linux-x11 + record)
+        run: cargo clippy --features "gui linux-x11 record" --all-targets -- -D warnings
+
+      - name: Test (gui + linux-x11 + record)
+        run: cargo test --features "gui linux-x11 record"
 
       - name: Doc
         run: cargo doc --no-deps
@@ -72,7 +80,7 @@ jobs:
         run: cargo test --features "gui wgc record"
 
   macos:
-    name: macOS (gui + ScreenCaptureKit)
+    name: macOS (gui + ScreenCaptureKit + record)
     runs-on: macos-26
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -84,14 +92,14 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Build (gui + macos)
-        run: cargo build --features "gui macos"
+      - name: Build (gui + macos + record)
+        run: cargo build --features "gui macos record"
 
-      - name: Clippy (gui + macos)
-        run: cargo clippy --features "gui macos" --all-targets -- -D warnings
+      - name: Clippy (gui + macos + record)
+        run: cargo clippy --features "gui macos record" --all-targets -- -D warnings
 
-      - name: Test (gui + macos)
-        run: cargo test --features "gui macos"
+      - name: Test (gui + macos + record)
+        run: cargo test --features "gui macos record"
 
   msrv:
     name: MSRV (declared rust-version)

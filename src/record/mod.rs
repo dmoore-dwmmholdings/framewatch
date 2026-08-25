@@ -3,9 +3,9 @@
 //! Unlike the change-triggered [`Engine`](crate::Engine), which drops frames,
 //! this path records *every* paced frame of one window to an `ffmpeg`-encoded
 //! mp4 while capturing the microphone, then hands the finished media to a
-//! [`PackageWriter`](crate::recording::PackageWriter). It is Windows-only (it
-//! drives the WGC backend); on other platforms [`record()`] returns
-//! [`RecordError::Unsupported`].
+//! [`PackageWriter`](crate::recording::PackageWriter). It uses WGC on Windows,
+//! ScreenCaptureKit on macOS, and X11 on Linux when the corresponding
+//! live-capture feature is enabled.
 
 use crate::config::Target;
 use crate::error::RecordError;
@@ -15,11 +15,23 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 mod audio;
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 mod ffmpeg;
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 mod video;
 
 /// Inputs to a recording run.
@@ -89,19 +101,31 @@ pub struct AudioInfo {
 
 /// How long to wait for the first frame after the window is resolved, in
 /// addition to `RecordConfig::wait_ms`.
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 const FIRST_FRAME_WAIT_MS: u64 = 10_000;
 
 /// Record `cfg.target` to a video + microphone WAV until `cfg.stop` is set,
 /// muxing them into `cfg.video_out`. Returns metadata for the package manifest.
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 pub fn record(cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
     record_inner(cfg, None)
 }
 
 /// Record for a bounded duration measured from encoder startup (after the target
 /// window has resolved and its first frame has arrived).
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 pub fn record_with_duration(
     cfg: RecordConfig,
     duration: std::time::Duration,
@@ -109,7 +133,11 @@ pub fn record_with_duration(
     record_inner(cfg, Some(duration))
 }
 
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 fn record_inner(
     cfg: RecordConfig,
     duration: Option<std::time::Duration>,
@@ -126,11 +154,12 @@ fn record_inner(
     let fps = cfg.fps.clamp(1, 60);
 
     // Resolve the window first (it may not have launched yet).
-    let backend = video::resolve_wgc(&cfg.target, cfg.wait_ms)?;
-    let window = backend.window().clone();
-    let wgc_stop = backend
+    let resolved = video::resolve_backend(&cfg.target, cfg.wait_ms)?;
+    let window = resolved.window;
+    let capture_stop = resolved
+        .backend
         .stop_signal()
-        .expect("WGC backend exposes a stop signal");
+        .expect("live recording backends expose a stop signal");
 
     // Start the microphone. A missing/unusable input device is non-fatal — we
     // fall back to a video-only recording rather than losing the capture.
@@ -154,7 +183,9 @@ fn record_inner(
         let (mailbox, dims, v0, stop) =
             (mailbox.clone(), dims.clone(), v0.clone(), cfg.stop.clone());
         let crop = cfg.crop;
-        std::thread::spawn(move || video::run_capture(backend, crop, mailbox, dims, v0, stop))
+        std::thread::spawn(move || {
+            video::run_capture(resolved.backend, crop, mailbox, dims, v0, stop)
+        })
     };
 
     // Wait for the first frame to lock the recording dimensions.
@@ -163,7 +194,7 @@ fn record_inner(
         Some(d) => d,
         None => {
             cfg.stop.store(true, Ordering::Relaxed);
-            wgc_stop.store(true, Ordering::Relaxed);
+            capture_stop.store(true, Ordering::Relaxed);
             let capture_result = join_capture(capture);
             if let Some(a) = audio.take() {
                 let _ = a.finish();
@@ -182,7 +213,7 @@ fn record_inner(
         Ok(encoder) => encoder,
         Err(error) => {
             cfg.stop.store(true, Ordering::Relaxed);
-            wgc_stop.store(true, Ordering::Relaxed);
+            capture_stop.store(true, Ordering::Relaxed);
             let _ = join_capture(capture);
             if let Some(a) = audio.take() {
                 let _ = a.finish();
@@ -227,7 +258,7 @@ fn record_inner(
     // Ordered finalize: stop capture, flush+close the encoder (so the mp4 gets
     // its moov atom), then finalize the WAV.
     cfg.stop.store(true, Ordering::Relaxed);
-    wgc_stop.store(true, Ordering::Relaxed);
+    capture_stop.store(true, Ordering::Relaxed);
     let encoder_result = encoder.finish();
     let capture_result = join_capture(capture);
     let audio_result = match audio.take() {
@@ -298,7 +329,11 @@ fn record_inner(
     })
 }
 
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+))]
 fn join_capture(
     capture: std::thread::JoinHandle<Result<(), crate::error::CaptureError>>,
 ) -> Result<(), RecordError> {
@@ -310,14 +345,22 @@ fn join_capture(
     Ok(())
 }
 
-/// Recording is only implemented on Windows (via the WGC backend).
-#[cfg(not(windows))]
+/// Recording needs a native live-capture backend.
+#[cfg(not(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+)))]
 pub fn record(_cfg: RecordConfig) -> Result<RecordOutcome, RecordError> {
     Err(RecordError::Unsupported)
 }
 
-/// Recording is only implemented on Windows (via the WGC backend).
-#[cfg(not(windows))]
+/// Recording needs a native live-capture backend.
+#[cfg(not(any(
+    all(windows, feature = "wgc"),
+    all(target_os = "macos", feature = "macos"),
+    all(target_os = "linux", feature = "linux-x11")
+)))]
 pub fn record_with_duration(
     _cfg: RecordConfig,
     _duration: std::time::Duration,
