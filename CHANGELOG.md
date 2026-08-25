@@ -7,6 +7,18 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-08-24
+
+### Fixed
+
+- **Crates.io releases.** Tag releases now publish the validated crate to
+  crates.io before creating the matching GitHub Release. This makes the
+  documented `macos` and `linux-x11` installation features available to
+  `cargo install framewatch` users.
+- **Registry dependency example.** The agent integration guide now references
+  the current crates.io release instead of the obsolete pre-release `0.1`
+  version.
+
 ## [0.7.0] - 2026-08-19
 
 ### Added
