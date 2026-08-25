@@ -142,7 +142,6 @@ fn record_inner(
     cfg: RecordConfig,
     duration: Option<std::time::Duration>,
 ) -> Result<RecordOutcome, RecordError> {
-    use crate::capture::CaptureBackend;
     use std::sync::atomic::Ordering;
     use std::sync::{Condvar, Mutex};
     use std::time::{Duration, Instant};

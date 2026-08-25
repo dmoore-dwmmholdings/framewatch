@@ -7,6 +7,14 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-08-24
+
+### Fixed
+
+- **Platform feature builds.** Fixed the macOS capture loop so `macos` builds
+  without moving a frame from a match guard, and removed warnings that only
+  appeared in platform-specific recording builds.
+
 ## [0.8.3] - 2026-08-24
 
 ### Fixed

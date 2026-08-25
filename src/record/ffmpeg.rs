@@ -20,10 +20,16 @@ const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 
 /// Build an `ffmpeg` command that won't receive the console's Ctrl+C.
 fn ffmpeg_command() -> Command {
-    let mut cmd = Command::new("ffmpeg");
     #[cfg(windows)]
-    cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
-    cmd
+    {
+        let mut cmd = Command::new("ffmpeg");
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("ffmpeg")
+    }
 }
 
 /// Build the args for the video-encode pass: raw BGRA frames on stdin (constant

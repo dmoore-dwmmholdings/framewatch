@@ -92,8 +92,12 @@ impl CaptureBackend for MacosBackend {
                 break Ok(());
             }
             match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(frame) if on_frame(frame) == ControlFlow::Stop => break Ok(()),
-                Ok(_) | Err(RecvTimeoutError::Timeout) => {}
+                Ok(frame) => {
+                    if on_frame(frame) == ControlFlow::Stop {
+                        break Ok(());
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     break Err(CaptureError::Backend(
                         "macOS capture stream stopped unexpectedly".into(),
