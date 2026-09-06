@@ -4,8 +4,8 @@ This folder is the **entry point for another project or agent** to use framewatc
 
 | File | What it is |
 |---|---|
-| `framewatch.exe` | Windows release binary (built with `cli` + `wgc` + `gui` + `record`). *Not committed to git; produced by the build below.* |
-| GitHub Releases | Versioned archives for Windows, macOS (`aarch64-apple-darwin` and `x86_64-apple-darwin`), and Linux X11 (`x86_64-unknown-linux-gnu`). macOS builds use `cli` + `macos` + `gui` + `record` and require macOS 14+. |
+| `framewatch.exe` | Windows release binary (built with `cli` + `wgc` + `gui` + `record` + `input`). *Not committed to git; produced by the build below.* |
+| GitHub Releases | Versioned archives for Windows, macOS (`aarch64-apple-darwin` and `x86_64-apple-darwin`), and Linux X11 (`x86_64-unknown-linux-gnu`). macOS builds use `cli` + `macos` + `gui` + `record` + `input` and require macOS 14+. |
 | Linux X11 | Development builds use `cli` + `linux-x11`; an X11 session with `DISPLAY` is required. Wayland is not supported yet. |
 | `framewatch.json` | **Machine-readable manifest** — where the binary is, every command, every flag, and the full output schema. Parse this. |
 | `../.agents/skills/framewatch/` | **Codex skill** — native workflow discovery for capture, inspection, and recording tasks. |
@@ -24,17 +24,20 @@ dist\framewatch.exe watch --title "Visual Studio Code" --out ./.framewatch
 
 # then read:  ./.framewatch/<session_id>/timeline.jsonl   (+ session.json, frames/)
 # open images only for events with kind == "settled" or "busy_end"
+
+# act on the window, using coordinates read straight off a captured frame
+dist\framewatch.exe input --title "Visual Studio Code" click --at 420,260
 ```
 
 ## (Re)building the binary
 
 ```sh
-cargo build --release --features "cli wgc gui record"
+cargo build --release --features "cli wgc gui record input"
 # then copy target/release/framewatch.exe -> dist/framewatch.exe
 
 # macOS 14+ (ScreenCaptureKit)
-cargo build --release --features "cli macos gui"
+cargo build --release --features "cli macos gui input"
 
 # Linux X11
-cargo build --release --features "cli linux-x11 gui record"
+cargo build --release --features "cli linux-x11 gui record input"
 ```

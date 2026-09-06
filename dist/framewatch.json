@@ -14,29 +14,29 @@
     "relative_path": "dist/framewatch.exe",
     "path_note": "Paths are relative to the repository root. Resolve relative_path against your checkout to get an absolute path.",
     "platform": "windows-x86_64",
-    "features": ["cli", "wgc", "gui", "record"],
+    "features": ["cli", "wgc", "gui", "record", "input"],
     "version_command": "framewatch.exe --version"
   },
   "release_assets": [
     {
       "archive": "framewatch-x86_64-pc-windows-msvc.zip",
       "platform": "windows-x86_64",
-      "features": ["cli", "wgc", "gui", "record"]
+      "features": ["cli", "wgc", "gui", "record", "input"]
     },
     {
       "archive": "framewatch-aarch64-apple-darwin.zip",
       "platform": "macos-aarch64",
-      "features": ["cli", "macos", "gui", "record"]
+      "features": ["cli", "macos", "gui", "record", "input"]
     },
     {
       "archive": "framewatch-x86_64-apple-darwin.zip",
       "platform": "macos-x86_64",
-      "features": ["cli", "macos", "gui", "record"]
+      "features": ["cli", "macos", "gui", "record", "input"]
     },
     {
       "archive": "framewatch-x86_64-unknown-linux-gnu.tar.gz",
       "platform": "linux-x86_64-x11",
-      "features": ["cli", "linux-x11", "gui", "record"]
+      "features": ["cli", "linux-x11", "gui", "record", "input"]
     }
   ],
   "commands": [
@@ -114,6 +114,44 @@
       },
       "contract": "On success prints the written path to stdout and exits 0. If no frame settles before --timeout (and --settle-best-effort is unset), writes nothing and exits non-zero (3).",
       "example": "framewatch.exe shot --launch \"game.exe --freecam\" --out-file shot.png --timeout 25"
+    },
+    {
+      "name": "input",
+      "summary": "Drive real OS mouse events over a window, at coordinates read straight off a captured frame. Requires the `input` feature plus the platform live-capture feature.",
+      "invoke": "framewatch.exe input <selector> [--space window|screen] [--roi X,Y,W,H] [--dry-run] [--no-focus] [--allow-outside] [--restore-cursor] <action>",
+      "blocking": true,
+      "selectors": {
+        "--title": "case-insensitive substring matched against the window title (literal, not a regex)",
+        "--exe": "executable basename",
+        "--hwnd": "exact numeric window handle",
+        "--pid": "exact: the window owned by this process id"
+      },
+      "actions": {
+        "move": "move <X,Y> — move the pointer",
+        "click": "click [--at X,Y] [--button left|right|middle] [--count N]; --count 2 is a double-click",
+        "down": "down [--at X,Y] [--button ...] — press and hold",
+        "up": "up [--at X,Y] [--button ...] — release",
+        "drag": "drag --from X,Y --to X,Y [--button ...] [--steps N] [--hold-ms N] — presses, moves through the middle, releases",
+        "scroll": "scroll [--at X,Y] [--dx N] [--dy N] — wheel notches; --dy positive is up, --dx positive is right",
+        "where": "report the pointer position; moves and focuses nothing",
+        "script": "script <PATH|-> — run a JSON action script (a JSON array, or one object per line)"
+      },
+      "options": {
+        "--space": "window (default) measures from the top-left of the target window's captured region — the same origin as a captured PNG; screen uses absolute desktop pixels and needs no selector",
+        "--roi": "the ROI capture was cropped to, X,Y,W,H; pass the same rect used for watch/shot so coordinates read off the cropped frame land right",
+        "--dry-run": "resolve the window and return the expansion in a plan field without touching the pointer",
+        "--no-focus": "do not bring the target window to the foreground first",
+        "--allow-outside": "permit window-space points outside the captured region (refused by default)",
+        "--restore-cursor": "put the pointer back where it was afterwards",
+        "--press-ms": "dwell between a button press and its release, default 24",
+        "--between-ms": "pause between consecutive actions, default 40",
+        "--config": "path to a framewatch.toml base config, for target/roi defaults"
+      },
+      "action_script_format": "Each action is an object tagged with \"action\"; points are [x, y] arrays. Actions: move{to}, press{button?,at?}, release{button?,at?}, click{button?,at?,count?}, drag{from?,to,button?,steps?,hold_ms?}, scroll{at?,dx?,dy?}, wait{ms}. Defaults: button \"left\", count 1, steps 16, hold_ms 0.",
+      "stdout": "one JSON object: { ok, performed, space, region:[x,y,w,h], actions, ops, cursor:[x,y], cursor_screen:[x,y], window?:{hwnd,title,exe,rect}, plan?:[...] }",
+      "contract": "The whole request is expanded and every point bounds-checked before the first event is sent, so a refused request never moves the pointer. A window-space point outside the captured region is an error (non-zero exit) unless --allow-outside is set.",
+      "platform_notes": "Windows needs no permission and measures coordinates against DWMWA_EXTENDED_FRAME_BOUNDS (what Graphics Capture delivers, unlike GetWindowRect), opting the process into per-monitor DPI awareness; a normal-integrity process cannot send input to an elevated window. macOS needs Accessibility permission for the terminal or app running framewatch. Linux is X11 XTEST only; Wayland does not let a client synthesize input for other clients.",
+      "example": "framewatch.exe shot --title \"My App\" --out-file before.png && framewatch.exe input --title \"My App\" click --at 420,260 && framewatch.exe shot --title \"My App\" --out-file after.png"
     },
     {
       "name": "record",
@@ -244,15 +282,20 @@
     "crate": "framewatch",
     "cargo_dependency": "framewatch = { version = \"0.7\", default-features = false }  # or path = \"../framewatch\" when vendored",
     "live_capture_features": ["wgc", "macos", "linux-x11"],
+    "input_feature": "input — synthetic mouse input; pair it with the platform live-capture feature",
     "entry_points": [
       "framewatch::watch(config, sink)",
       "framewatch::record_with_duration(config, duration)",
       "framewatch::default_backend(&config)",
+      "framewatch::resolve_window(&target)",
       "framewatch::enumerate_windows()",
+      "framewatch::input::perform(&request)",
+      "framewatch::input::dry_run(&request)",
+      "framewatch::input::plan(&actions, &map, &settings)",
       "framewatch::Engine::process(&frame, now)",
       "framewatch::Config::builder()",
       "framewatch::DirectorySink::new(&config)"
     ]
   },
-  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with wgc, macOS 14+ with macos, or a Linux X11 session with linux-x11 and DISPLAY set. Wayland needs a separate user-approved XDG Desktop Portal backend and is not yet supported. macOS requires Screen Recording permission. Recording requires Windows with wgc, macOS with macos, or Linux X11 with linux-x11, plus the record feature and ffmpeg on PATH. The pure detection engine and sinks compile and run on all platforms."
+  "platform_notes": "Live capture (windows/watch commands and default_backend) requires Windows with wgc, macOS 14+ with macos, or a Linux X11 session with linux-x11 and DISPLAY set. Wayland needs a separate user-approved XDG Desktop Portal backend and is not yet supported. macOS requires Screen Recording permission. Recording requires Windows with wgc, macOS with macos, or Linux X11 with linux-x11, plus the record feature and ffmpeg on PATH. Synthetic mouse input (the input command / framewatch::input) needs the input feature alongside the platform capture feature: SendInput on Windows, Core Graphics events on macOS (Accessibility permission required), XTEST on Linux X11. The pure detection engine, sinks, and input planner compile and run on all platforms."
 }

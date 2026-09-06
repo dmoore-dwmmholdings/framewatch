@@ -33,7 +33,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} --features "macos gui record"
+        run: cargo build --release --target ${{ matrix.target }} --features "macos gui record input"
       - name: Smoke test
         run: target/${{ matrix.target }}/release/framewatch --version
       - name: Package
@@ -65,7 +65,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - name: Build
-        run: cargo build --release --features "wgc gui record"
+        run: cargo build --release --features "wgc gui record input"
       - name: Smoke test
         run: .\target\release\framewatch.exe --version
       - name: Package
@@ -93,7 +93,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - name: Build
-        run: cargo build --release --features "linux-x11 gui record"
+        run: cargo build --release --features "linux-x11 gui record input"
       - name: Smoke test
         run: target/release/framewatch --version
       - name: Package

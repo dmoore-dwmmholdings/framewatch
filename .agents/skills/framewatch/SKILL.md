@@ -23,7 +23,8 @@ paths and inspect only the meaningful frames recorded in its timeline.
    `cargo install framewatch --features linux-x11`. Use `cargo install framewatch
    --features "wgc record"` when Windows recording is needed, or
    `--features "macos record"` for macOS recording, or
-   `--features "linux-x11 record"` for Linux X11 recording. In a source
+   `--features "linux-x11 record"` for Linux X11 recording. Add `input` when the
+   task needs synthetic mouse input (`--features "wgc input"` and so on). In a source
    checkout where building is in scope, use `cargo build --release --features
    "cli wgc"` on Windows, `cargo build --release --features "cli macos"` on
    macOS, or `cargo build --release --features "cli linux-x11"` on Linux X11;
@@ -51,6 +52,10 @@ CLI `--help` output.
   narration does not need to be interpreted.
 - Use `windows` to discover a target when its title, executable, PID, or HWND is
   unknown.
+- Use `input` when the task needs the UI *driven*, not only observed — clicking a
+  button, dragging a handle, scrolling a list. It requires an `input`-featured
+  build, and it sends real mouse events into the user's desktop, so treat it as
+  an action with side effects rather than an observation.
 - Use `gui` only when a human needs to pick a window or draw regions of interest.
 
 Prefer `--pid` for an already-running process and `--launch` for an app that
@@ -89,6 +94,43 @@ After the command exits:
 
 Do not leave an unbounded `watch` process running after the task.
 
+## Drive the UI and verify the result
+
+`input` sends real OS mouse events at coordinates measured from the top-left of
+the target window's captured region — the same origin as the pixels in a frame
+`shot` wrote. Read the coordinate off the image; do not convert to screen space.
+
+Work in a look / act / look loop, so every action has evidence on both sides:
+
+```powershell
+framewatch shot  --title "My App" --out-file .framewatch/before.png --timeout 20 --settle-best-effort
+framewatch input --title "My App" click --at 420,260
+framewatch shot  --title "My App" --out-file .framewatch/after.png --timeout 20 --settle-best-effort
+```
+
+Actions: `move X,Y`, `click [--at X,Y] [--button left|right|middle] [--count N]`,
+`down`/`up`, `drag --from X,Y --to X,Y`, `scroll [--at X,Y] [--dx N] [--dy N]`,
+`where`, and `script <PATH|->` for a JSON batch. Pass `--roi` matching the crop
+used for capture when the frame was cropped.
+
+Rules for agent use:
+
+1. Run `--dry-run` first when the coordinate was inferred rather than measured;
+   it resolves the window and prints the plan without moving anything.
+2. A point outside the window is refused, not clamped. Re-measure rather than
+   reaching for `--allow-outside`.
+3. Read the JSON on stdout: `region` is the rect coordinates were measured
+   against and `cursor` is where the pointer ended up.
+4. Prefer one `script` invocation over several commands when actions must follow
+   each other closely.
+5. Do not click through consent prompts, purchases, or destructive actions
+   without explicit instruction. Clicking is an action taken on the user's real
+   desktop and cannot be undone by Framewatch.
+
+Platform requirements: no permission on Windows (but a normal-integrity process
+cannot drive an elevated window); Accessibility permission on macOS for the
+terminal or app running Framewatch; X11 with XTEST on Linux, never Wayland.
+
 ## Consume a recording package
 
 For an explicitly requested recording, prefer a fixed `--duration`. Use
@@ -106,7 +148,8 @@ Consume the result in this order:
 
 ## Safety and cleanup
 
-- Capture only windows and audio within the user's task scope.
+- Capture only windows and audio within the user's task scope, and send input
+  only to windows within it.
 - Treat screenshots, timelines, video, audio, and transcripts as potentially
   sensitive local artifacts.
 - Store routine output under the ignored `.framewatch/` directory.

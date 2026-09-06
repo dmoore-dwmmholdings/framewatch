@@ -56,8 +56,8 @@ This repository includes both Codex-native discovery layers:
 - [`AGENTS.md`](AGENTS.md) gives Codex the project architecture, public-contract
   rules, and verification commands when it works on Framewatch itself.
 - [`.agents/skills/framewatch/SKILL.md`](.agents/skills/framewatch/SKILL.md)
-  teaches Codex when to use `shot`, `watch`, or `record`, and how to consume the
-  resulting artifacts. Codex discovers the skill automatically in this checkout;
+  teaches Codex when to use `shot`, `watch`, `input`, or `record`, and how to
+  consume the resulting artifacts. Codex discovers the skill automatically in this checkout;
   invoke it explicitly with `$framewatch` or let it trigger for desktop UI
   capture tasks.
 
@@ -84,6 +84,11 @@ cargo install framewatch --features linux-x11
 # Linux X11: --features "linux-x11 record"
 cargo install framewatch --features "wgc record"
 framewatch transcriber setup   # optional preflight; record also runs this automatically
+
+# CLI that can also drive the mouse (see "Act on the window" below):
+# Windows: --features "wgc input"; macOS: --features "macos input";
+# Linux X11: --features "linux-x11 input"
+cargo install framewatch --features "wgc input"
 
 # As a library (engine + sinks only, no clap/egui):
 cargo add framewatch --no-default-features
@@ -114,6 +119,28 @@ framewatch watch --title "Visual Studio Code" --out ./.framewatch
 # 4. Or against a saved config
 framewatch watch --config framewatch.toml
 ```
+
+## Act on the window, not just watch it (`input`)
+
+Capture tells an agent what the window looks like. `input` (feature `input`,
+paired with the platform capture feature) lets it act on what it sees, using the
+**same coordinates it read off the frame**:
+
+```sh
+framewatch shot  --title "My App" --out-file before.png
+framewatch input --title "My App" click --at 420,260     # window-relative pixels
+framewatch shot  --title "My App" --out-file after.png
+```
+
+`move`, `click` (`--count 2` for a double-click), `down`/`up`, `drag` (a real
+one — press, move through the middle, release), `scroll`, and `where`, plus
+`script` for a JSON batch of actions. `--dry-run` prints the exact plan without
+touching the pointer, and a point outside the window is refused rather than
+clicked into whatever else is on the desktop.
+
+Under the hood: `SendInput` on Windows, Core Graphics events on macOS
+(Accessibility permission required), XTEST on Linux X11. Full contract in
+[`docs/AGENT_INTEGRATION.md`](docs/AGENT_INTEGRATION.md#15-drive-the-mouse-input--act-dont-just-observe).
 
 ## Record & narrate → an LLM package (V4)
 
@@ -233,6 +260,7 @@ detection pipeline is unit-tested without a GPU, screen, or Windows.
 | `linux-x11` | | Linux X11 per-window capture + window enumeration |
 | `gui` | | eframe/egui window picker & ROI editor |
 | `record` | | `record` subcommand: window video (via `ffmpeg`) + mic (`cpal`) → LLM package |
+| `input` | | `input` subcommand: drive real mouse events over the watched window |
 | `jpeg` / `webp` | | extra image encoders |
 | `llm` | | reserved: out-of-band vision-caption sink |
 

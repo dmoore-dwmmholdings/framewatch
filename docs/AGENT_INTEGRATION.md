@@ -275,7 +275,107 @@ it the file is named `frames/000004_settled_before-checkout.png`. Several marks
 before one frame all appear in the array, but the frame keeps its plain name —
 one label is a name, several are ambiguous.
 
-### 1.5 GUI picker / ROI editor (for humans)
+### 1.5 Drive the mouse (`input`) — act, don't just observe
+
+`input` sends real OS-level mouse events at coordinates **read straight off a
+captured frame**. It closes the loop: `shot` says what the window looks like,
+`input` acts on it, `shot` again says what happened.
+
+Requires a build with the `input` feature (the published release binaries have
+it) plus that platform's live-capture feature.
+
+```sh
+# Look, then act, then look again.
+framewatch shot --title "My App" --out-file before.png
+framewatch input --title "My App" click --at 420,260
+framewatch shot --title "My App" --out-file after.png
+```
+
+**Coordinates are window-relative by default** — measured from the top-left of
+the target window's captured region, the same origin as the pixels in
+`before.png`. So a button the agent located at pixel `(420, 260)` is clicked
+with `--at 420,260`; no screen arithmetic, no DPI maths.
+
+| Action | Meaning |
+|---|---|
+| `move <X,Y>` | move the pointer |
+| `click [--at X,Y] [--button left\|right\|middle] [--count N]` | click; `--count 2` is a double-click |
+| `down` / `up` `[--at X,Y] [--button ...]` | press and release separately |
+| `drag --from X,Y --to X,Y [--steps N] [--hold-ms N]` | a real drag: press, move through the middle, release |
+| `scroll [--at X,Y] [--dx N] [--dy N]` | wheel notches; `--dy` positive is up, `--dx` positive is right |
+| `where` | report the pointer position; moves and focuses nothing |
+| `script <PATH\|->` | run a JSON action script (see below) |
+
+| Flag | Meaning |
+|---|---|
+| `--title/--exe/--hwnd/--pid` | which window to act on (same matching as `watch`/`shot`) |
+| `--space window\|screen` | `window` (default) is frame-relative; `screen` is absolute desktop pixels and needs no selector |
+| `--roi <X,Y,W,H>` | the ROI capture was cropped to — pass the same rect used for `watch`/`shot` and coordinates read off the cropped frame land right |
+| `--dry-run` | resolve the window and print the plan; touch nothing |
+| `--no-focus` | don't bring the window to the foreground first |
+| `--allow-outside` | permit window-space points outside the captured region |
+| `--restore-cursor` | put the pointer back where it was afterwards |
+| `--press-ms` / `--between-ms` | dwell inside a click / pause between actions (defaults 24 / 40 ms) |
+
+**Contract.** One JSON object on stdout, and a non-zero exit on failure:
+
+```json
+{"ok":true,"performed":true,"space":"window","region":[305,85,901,683],
+ "actions":1,"ops":5,"cursor":[250,313],"cursor_screen":[555,398],
+ "window":{"hwnd":754,"title":"My App","exe":"app.exe","rect":[305,85,901,683]}}
+```
+
+`region` is the screen rect window coordinates were measured against, and
+`cursor` is where the pointer ended up in the space you asked for — so a
+follow-up action can pick up where the last one left off.
+
+**A point outside the window is refused**, before anything moves:
+
+```
+point 99999,80 is outside the 1512x913 captured region of the target window
+```
+
+Bad coordinate arithmetic is the common agent failure here, and clicking it
+would land in whatever else is on the desktop. `--allow-outside` opts out when
+that is genuinely what you want.
+
+**Action scripts** batch a sequence into one invocation, which keeps the timing
+between actions tight. Pass a file, or `-` for stdin; either a JSON array or one
+object per line:
+
+```sh
+framewatch input --title "My App" script - <<'EOF'
+{"action": "click", "at": [120, 90]}
+{"action": "wait",  "ms": 400}
+{"action": "drag",  "from": [200, 300], "to": [640, 300], "hold_ms": 100}
+{"action": "scroll", "at": [400, 400], "dy": -5}
+EOF
+```
+
+Every action object is `{"action": "...", ...}`; points are `[x, y]` arrays;
+omitted fields take their defaults (`button: "left"`, `count: 1`, `steps: 16`).
+The actions are `move`, `press`, `release`, `click`, `drag`, `scroll`, `wait`.
+
+**Before it sends anything**, `input` expands the whole request into primitive
+operations and bounds-checks every point, so a request that is going to be
+refused never moves the pointer half way. `--dry-run` returns that expansion in
+a `plan` field instead of performing it.
+
+**Platform notes.**
+
+- **Windows** needs no permission. Coordinates are measured against the DWM
+  frame (`DWMWA_EXTENDED_FRAME_BOUNDS`), which is what Graphics Capture
+  delivers, not `GetWindowRect` — those differ by the invisible resize border.
+  The process opts into per-monitor DPI awareness so scaled displays agree with
+  captured pixels. A normal-integrity process cannot send input to an
+  **elevated** window; run framewatch elevated if the target is.
+- **macOS** needs **Accessibility** permission (System Settings > Privacy &
+  Security > Accessibility) for the terminal or app running framewatch —
+  `input` says so up front rather than failing silently.
+- **Linux** is X11 only, through XTEST. Wayland does not let a client
+  synthesize input for other clients.
+
+### 1.6 GUI picker / ROI editor (for humans)
 
 ```sh
 dist\framewatch.exe gui
@@ -507,6 +607,10 @@ backend.run(&mut |frame| {
 | `framewatch::DirectorySink` / `ChannelSink` / `CompositeSink` | outputs |
 | `framewatch::CaptureEvent` / `CaptureMeta` | the event + its serializable metadata |
 | `framewatch::MockBackend` | replay frames/PNGs (tests, CI, demos) |
+| `framewatch::resolve_window(&target)` | the window a capture would use, without starting one |
+| `framewatch::input::perform(&request)` | drive the mouse (`input` feature); `dry_run` plans without acting |
+| `framewatch::input::plan(&actions, &map, &settings)` | pure action → operation expansion |
+| `framewatch::input::RecordingMouse` | record operations instead of sending them (tests) |
 
 Full API docs: `cargo doc --open` (or docs.rs once published).
 
@@ -534,6 +638,12 @@ dist\framewatch.exe watch --title "QEMU" --roi 0,52,1920,1040 --wait 15 --until-
 # one settled frame to a chosen file (launch + capture + kill; prints path, exit code):
 dist\framewatch.exe shot --launch "game.exe --freecam" --out-file shot.png --timeout 25
 dist\framewatch.exe shot --pid 41234 --out-file shot.png      # exact window, no stale match
+
+# act on the window: coordinates are read straight off a captured frame
+dist\framewatch.exe input --title "My App" click --at 420,260
+dist\framewatch.exe input --title "My App" drag --from 200,300 --to 640,300
+dist\framewatch.exe input --title "My App" scroll --at 400,400 --dy -5
+dist\framewatch.exe input --title "My App" --dry-run click --at 420,260   # plan only
 
 # label what the app is doing, from anywhere (safe while `watch` runs):
 distramewatch.exe mark --label "before-checkout"

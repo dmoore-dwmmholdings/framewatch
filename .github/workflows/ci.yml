@@ -48,17 +48,17 @@ jobs:
       - name: Test (no default features)
         run: cargo test --no-default-features
 
-      - name: Clippy (gui + linux-x11 + record)
-        run: cargo clippy --features "gui linux-x11 record" --all-targets -- -D warnings
+      - name: Clippy (gui + linux-x11 + record + input)
+        run: cargo clippy --features "gui linux-x11 record input" --all-targets -- -D warnings
 
-      - name: Test (gui + linux-x11 + record)
-        run: cargo test --features "gui linux-x11 record"
+      - name: Test (gui + linux-x11 + record + input)
+        run: cargo test --features "gui linux-x11 record input"
 
       - name: Doc
         run: cargo doc --no-deps
 
   windows:
-    name: Windows (gui + wgc + record)
+    name: Windows (gui + wgc + record + input)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -70,17 +70,17 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Build (gui + wgc + record)
-        run: cargo build --features "gui wgc record"
+      - name: Build (gui + wgc + record + input)
+        run: cargo build --features "gui wgc record input"
 
-      - name: Clippy (gui + wgc + record)
-        run: cargo clippy --features "gui wgc record" --all-targets -- -D warnings
+      - name: Clippy (gui + wgc + record + input)
+        run: cargo clippy --features "gui wgc record input" --all-targets -- -D warnings
 
-      - name: Test (gui + wgc + record)
-        run: cargo test --features "gui wgc record"
+      - name: Test (gui + wgc + record + input)
+        run: cargo test --features "gui wgc record input"
 
   macos:
-    name: macOS (gui + ScreenCaptureKit + record)
+    name: macOS (gui + ScreenCaptureKit + record + input)
     runs-on: macos-26
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -92,14 +92,14 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Build (gui + macos + record)
-        run: cargo build --features "gui macos record"
+      - name: Build (gui + macos + record + input)
+        run: cargo build --features "gui macos record input"
 
-      - name: Clippy (gui + macos + record)
-        run: cargo clippy --features "gui macos record" --all-targets -- -D warnings
+      - name: Clippy (gui + macos + record + input)
+        run: cargo clippy --features "gui macos record input" --all-targets -- -D warnings
 
-      - name: Test (gui + macos + record)
-        run: cargo test --features "gui macos record"
+      - name: Test (gui + macos + record + input)
+        run: cargo test --features "gui macos record input"
 
   msrv:
     name: MSRV (declared rust-version)

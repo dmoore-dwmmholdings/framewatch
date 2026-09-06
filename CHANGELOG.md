@@ -7,6 +7,30 @@ changes bump the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- **Synthetic mouse input (`input` feature, `framewatch input`).** An agent can
+  now act on the window it watches, not only observe it: `move`, `click`
+  (including double-click), `down`/`up`, a real `drag` that moves through the
+  middle rather than teleporting, `scroll`, `where`, and `script` for a JSON
+  batch of actions. Backends are `SendInput` on Windows, Core Graphics events on
+  macOS, and XTEST on Linux X11; the feature is off by default, so a build that
+  can only observe stays available.
+- **Frame-relative coordinates.** Points are measured from the top-left of the
+  target window's captured region by default — the same origin as the pixels in
+  a captured PNG — so a coordinate read off a frame can be clicked as-is.
+  `--roi` shifts them to match a cropped capture, and `--space screen` switches
+  to absolute desktop pixels. On Windows the region comes from
+  `DWMWA_EXTENDED_FRAME_BOUNDS`, which is what Graphics Capture delivers, and
+  the process opts into per-monitor DPI awareness so scaled displays agree.
+- **A request is refused before it moves anything.** The whole action list is
+  expanded and every point bounds-checked up front, so a window-space point
+  outside the captured region is an error rather than a click on whatever else
+  is on the desktop (`--allow-outside` opts out). `--dry-run` returns the
+  expansion without touching the pointer.
+- **`framewatch::resolve_window(&target)`**, which reports the window a capture
+  of the same selector would use, without starting one.
+
 ## [0.8.5] - 2026-08-24
 
 ### Fixed

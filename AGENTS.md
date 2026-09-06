@@ -13,6 +13,9 @@ as public interfaces.
 - `src/bin/framewatch.rs`: CLI commands and lifecycle behavior.
 - `src/record/`, `src/recording.rs`, and `src/transcript.rs`: optional recording
   and narration-package support.
+- `src/input/`: synthetic mouse input behind the `input` feature. The planner in
+  `mod.rs` is pure and cross-platform; the SendInput / CGEvent / XTEST backends
+  are per-platform and gated on that platform's capture feature too.
 - `docs/AGENT_INTEGRATION.md` and `dist/framewatch.json`: human- and
   machine-readable integration contracts.
 - `.agents/skills/framewatch/`: Codex workflow for using Framewatch.
@@ -20,7 +23,9 @@ as public interfaces.
 ## Working agreements
 
 - Keep the core library cross-platform. Gate Windows capture and GUI behavior
-  behind the existing features.
+  behind the existing features. The same applies to synthetic input: keep the
+  action planner pure and testable, and put anything that touches an OS input
+  API in a platform backend.
 - Use `MockBackend` and injected clocks for deterministic engine tests. Do not
   require a live window, GPU, microphone, or network in automated tests.
 - When CLI flags, artifact layouts, or schemas change, update the integration
@@ -41,9 +46,10 @@ cargo test
 cargo test --no-default-features
 ```
 
-On Windows, changes that touch live capture, the GUI, or recording also require:
+On Windows, changes that touch live capture, the GUI, recording, or input also
+require:
 
 ```sh
-cargo clippy --features "gui wgc record" --all-targets -- -D warnings
-cargo test --features "gui wgc record"
+cargo clippy --features "gui wgc record input" --all-targets -- -D warnings
+cargo test --features "gui wgc record input"
 ```

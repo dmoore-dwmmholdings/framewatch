@@ -1,7 +1,9 @@
-//! The `framewatch` CLI: `windows`, `watch`, `shot`, `record`, and `gui` subcommands.
+//! The `framewatch` CLI: `windows`, `watch`, `shot`, `input`, `record`, and
+//! `gui` subcommands.
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use framewatch::input::{CoordSpace, InputRequest, MouseAction, MouseButton, PlanSettings, Point};
 use framewatch::{
     CaptureEvent, ChannelSink, Config, DirectorySink, EncodedImage, EventKind, Target,
 };
@@ -37,6 +39,9 @@ enum Command {
     /// One-shot: (optionally launch a program,) capture one settled frame to a
     /// single file, print its path, and exit. Ideal for scripted/batch capture.
     Shot(ShotArgs),
+    /// Drive the mouse over a window: move, click, drag, or scroll at
+    /// coordinates read straight off a captured frame.
+    Input(InputArgs),
     /// Record a window to video while narrating into the mic, then write an
     /// LLM-ready package (video + timestamped transcript + prompt).
     Record(RecordArgs),
@@ -191,6 +196,139 @@ struct ShotArgs {
 }
 
 #[derive(Args)]
+struct InputArgs {
+    /// Match the window title by a case-insensitive substring.
+    #[arg(long, group = "target")]
+    title: Option<String>,
+    /// Match by executable basename, e.g. "Code.exe".
+    #[arg(long, group = "target")]
+    exe: Option<String>,
+    /// Match by native window handle.
+    #[arg(long, group = "target")]
+    hwnd: Option<isize>,
+    /// Match the window owned by this process id.
+    #[arg(long, group = "target")]
+    pid: Option<u32>,
+    /// What coordinates mean: `window` (default) measures from the top-left of
+    /// the target window's captured region — the same origin as the pixels in a
+    /// framewatch frame — and `screen` uses absolute desktop pixels.
+    #[arg(long, default_value = "window")]
+    space: CoordSpace,
+    /// The ROI capture was cropped to, as `X,Y,W,H`. Pass the same rect used
+    /// for `watch`/`shot` and coordinates read off the cropped frame land right.
+    #[arg(long, value_name = "X,Y,W,H")]
+    roi: Option<String>,
+    /// Don't bring the target window to the foreground first.
+    #[arg(long)]
+    no_focus: bool,
+    /// Permit window-space points outside the captured region. Off by default:
+    /// a point outside the window is nearly always a coordinate mistake, and
+    /// clicking it would hit whatever else is on the desktop.
+    #[arg(long)]
+    allow_outside: bool,
+    /// Put the pointer back where it was when the actions are done.
+    #[arg(long)]
+    restore_cursor: bool,
+    /// Resolve the window and print the plan without touching the pointer.
+    #[arg(long)]
+    dry_run: bool,
+    /// Dwell between a button press and its release, in ms (default 24).
+    #[arg(long, value_name = "MS")]
+    press_ms: Option<u64>,
+    /// Pause between consecutive actions, in ms (default 40).
+    #[arg(long, value_name = "MS")]
+    between_ms: Option<u64>,
+    /// Load a base config from this TOML file (for `target`/`roi` defaults).
+    #[arg(long)]
+    config: Option<PathBuf>,
+
+    #[command(subcommand)]
+    action: InputAction,
+}
+
+#[derive(Subcommand)]
+enum InputAction {
+    /// Move the pointer to a point.
+    Move {
+        /// Destination, as `X,Y`.
+        #[arg(value_name = "X,Y")]
+        to: Point,
+    },
+    /// Click, optionally moving somewhere first.
+    Click {
+        /// Where to click, as `X,Y`. Defaults to the current pointer position.
+        #[arg(long, value_name = "X,Y")]
+        at: Option<Point>,
+        /// left, right, or middle.
+        #[arg(long, default_value = "left")]
+        button: MouseButton,
+        /// Clicks to send: 2 is a double-click.
+        #[arg(long, default_value_t = 1)]
+        count: u32,
+    },
+    /// Press and hold a button (pair with `up`).
+    Down {
+        /// Where to press, as `X,Y`.
+        #[arg(long, value_name = "X,Y")]
+        at: Option<Point>,
+        /// left, right, or middle.
+        #[arg(long, default_value = "left")]
+        button: MouseButton,
+    },
+    /// Release a held button.
+    Up {
+        /// Where to release, as `X,Y`.
+        #[arg(long, value_name = "X,Y")]
+        at: Option<Point>,
+        /// left, right, or middle.
+        #[arg(long, default_value = "left")]
+        button: MouseButton,
+    },
+    /// Press, move in steps, and release — a real drag, not a teleport.
+    Drag {
+        /// Where the drag starts, as `X,Y`. Defaults to the pointer position.
+        #[arg(long, value_name = "X,Y")]
+        from: Option<Point>,
+        /// Where the drag ends, as `X,Y`.
+        #[arg(long, value_name = "X,Y")]
+        to: Point,
+        /// left, right, or middle.
+        #[arg(long, default_value = "left")]
+        button: MouseButton,
+        /// Intermediate moves to synthesize (default 16).
+        #[arg(long)]
+        steps: Option<u32>,
+        /// Extra pause after pressing and before releasing, in ms — drop
+        /// targets often need a moment to arm.
+        #[arg(long, value_name = "MS", default_value_t = 0)]
+        hold_ms: u64,
+    },
+    /// Turn the wheel, in notches: `--dy` positive scrolls up, `--dx` right.
+    Scroll {
+        /// Where to scroll, as `X,Y`. Defaults to the current pointer position.
+        #[arg(long, value_name = "X,Y")]
+        at: Option<Point>,
+        /// Horizontal notches, positive right.
+        #[arg(long, allow_negative_numbers = true, default_value_t = 0)]
+        dx: i32,
+        /// Vertical notches, positive up.
+        #[arg(long, allow_negative_numbers = true, default_value_t = 0)]
+        dy: i32,
+    },
+    /// Report where the pointer is, without moving or focusing anything.
+    Where,
+    /// Run a JSON action script: a file path, or `-` to read stdin.
+    ///
+    /// Either a JSON array of action objects or one object per line, e.g.
+    /// {"action":"click","at":[420,260]}.
+    Script {
+        /// Script path, or `-` for stdin.
+        #[arg(value_name = "PATH")]
+        path: String,
+    },
+}
+
+#[derive(Args)]
 struct RecordArgs {
     /// Match the window title by a case-insensitive substring.
     #[arg(long, group = "target")]
@@ -270,6 +408,7 @@ fn main() -> Result<()> {
         Command::Windows => cmd_windows(),
         Command::Watch(args) => cmd_watch(args),
         Command::Shot(args) => cmd_shot(args),
+        Command::Input(args) => cmd_input(args),
         Command::Record(args) => cmd_record(args),
         Command::Transcriber(args) => cmd_transcriber(args),
         Command::Gui(args) => cmd_gui(args),
@@ -613,6 +752,158 @@ impl Drop for ChildGuard {
     }
 }
 
+/// Read an action script from a file (or stdin for `-`).
+///
+/// Accepts either a JSON array of actions or one action object per line, so a
+/// caller can append to a script as it decides what to do next.
+fn read_action_script(path: &str) -> Result<Vec<MouseAction>> {
+    let raw = if path == "-" {
+        use std::io::Read as _;
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("reading the action script from stdin")?;
+        buf
+    } else {
+        std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
+    };
+    parse_action_script(&raw)
+}
+
+fn parse_action_script(raw: &str) -> Result<Vec<MouseAction>> {
+    if raw.trim().is_empty() {
+        anyhow::bail!("the action script is empty");
+    }
+    if let Ok(actions) = serde_json::from_str::<Vec<MouseAction>>(raw) {
+        return Ok(actions);
+    }
+    let mut actions = Vec::new();
+    for (number, line) in raw.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let action: MouseAction = serde_json::from_str(line)
+            .with_context(|| format!("parsing action script line {}", number + 1))?;
+        actions.push(action);
+    }
+    if actions.is_empty() {
+        anyhow::bail!("the action script contained no actions");
+    }
+    Ok(actions)
+}
+
+/// Turn one CLI action into the action list to perform.
+fn input_actions(action: InputAction) -> Result<Vec<MouseAction>> {
+    Ok(match action {
+        InputAction::Move { to } => vec![MouseAction::Move { to }],
+        InputAction::Click { at, button, count } => vec![MouseAction::Click { button, at, count }],
+        InputAction::Down { at, button } => vec![MouseAction::Press { button, at }],
+        InputAction::Up { at, button } => vec![MouseAction::Release { button, at }],
+        InputAction::Drag {
+            from,
+            to,
+            button,
+            steps,
+            hold_ms,
+        } => vec![MouseAction::Drag {
+            from,
+            to,
+            button,
+            steps: steps.unwrap_or(PlanSettings::DEFAULT_DRAG_STEPS),
+            hold_ms,
+        }],
+        InputAction::Scroll { at, dx, dy } => vec![MouseAction::Scroll { at, dx, dy }],
+        // A query, not an action: nothing to perform.
+        InputAction::Where => Vec::new(),
+        InputAction::Script { path } => read_action_script(&path)?,
+    })
+}
+
+fn cmd_input(args: InputArgs) -> Result<()> {
+    let base = match &args.config {
+        Some(path) => Config::from_toml_path(path).context("loading config")?,
+        None => Config::default(),
+    };
+
+    let target = if let Some(t) = args.title {
+        Some(Target::ByTitleRegex(t))
+    } else if let Some(e) = args.exe {
+        Some(Target::ByExe(e))
+    } else if let Some(h) = args.hwnd {
+        Some(Target::ByHwnd(h))
+    } else if let Some(p) = args.pid {
+        Some(Target::ByPid(p))
+    } else if matches!(&base.target, Target::ByTitleRegex(s) | Target::ByExe(s) if s.is_empty()) {
+        None
+    } else {
+        Some(base.target.clone())
+    };
+
+    // `where` only reads the pointer, so it neither focuses nor acts.
+    let query_only = matches!(args.action, InputAction::Where);
+    let actions = input_actions(args.action)?;
+
+    let mut settings = PlanSettings::default();
+    if let Some(ms) = args.press_ms {
+        settings.press_ms = ms;
+    }
+    if let Some(ms) = args.between_ms {
+        settings.between_ms = ms;
+    }
+
+    let mut request = InputRequest::new(actions)
+        .space(args.space)
+        .focus(!args.no_focus && !query_only)
+        .allow_outside(args.allow_outside)
+        .restore_cursor(args.restore_cursor)
+        .settings(settings);
+    if let Some(target) = target {
+        request = request.target(target);
+    }
+    match args.roi.as_deref() {
+        Some(spec) => request = request.roi(parse_roi(spec)?),
+        None => {
+            if let Some(roi) = base.crop {
+                request = request.roi(roi);
+            }
+        }
+    }
+
+    let outcome = if args.dry_run {
+        framewatch::input::dry_run(&request)
+    } else {
+        framewatch::input::perform(&request)
+    }
+    .context("driving mouse input")?;
+
+    // One JSON object on stdout: an agent reads back where it left the pointer
+    // and, for a dry run, exactly what would have been sent.
+    let mut report = serde_json::json!({
+        "ok": true,
+        "performed": outcome.performed,
+        "space": args.space.to_string(),
+        "region": outcome.region.to_array(),
+        "actions": request.actions.len(),
+        "ops": outcome.ops.len(),
+        "cursor": [outcome.cursor_space.x, outcome.cursor_space.y],
+        "cursor_screen": [outcome.cursor_screen.x, outcome.cursor_screen.y],
+    });
+    if let Some(window) = &outcome.window {
+        report["window"] = serde_json::json!({
+            "hwnd": window.hwnd,
+            "title": window.title,
+            "exe": window.exe,
+            "rect": window.rect.to_array(),
+        });
+    }
+    if args.dry_run {
+        report["plan"] = serde_json::to_value(&outcome.ops)?;
+    }
+    println!("{}", serde_json::to_string(&report)?);
+    Ok(())
+}
+
 #[cfg(feature = "record")]
 fn effective_record_wait_ms(
     explicit_wait_seconds: Option<u64>,
@@ -888,6 +1179,92 @@ mod tests {
         assert_eq!(effective_record_wait_ms(None, 2_500, true), 2_500);
         assert_eq!(effective_record_wait_ms(Some(7), 2_500, true), 7_000);
         assert_eq!(effective_record_wait_ms(None, 0, false), 0);
+    }
+
+    #[test]
+    fn input_parses_points_buttons_and_negative_scroll() {
+        let cli = Cli::try_parse_from([
+            "framewatch",
+            "input",
+            "--title",
+            "My App",
+            "scroll",
+            "--at",
+            "10,20",
+            "--dy",
+            "-3",
+        ])
+        .expect("negative wheel deltas must not be read as flags");
+        match cli.command {
+            Command::Input(args) => match args.action {
+                InputAction::Scroll { at, dx, dy } => {
+                    assert_eq!(at, Some(Point::new(10, 20)));
+                    assert_eq!((dx, dy), (0, -3));
+                }
+                _ => panic!("expected scroll"),
+            },
+            _ => panic!("expected input"),
+        }
+    }
+
+    #[test]
+    fn input_rejects_a_malformed_point() {
+        assert!(Cli::try_parse_from(["framewatch", "input", "move", "10"]).is_err());
+        assert!(Cli::try_parse_from(["framewatch", "input", "move", "10,20"]).is_ok());
+    }
+
+    #[test]
+    fn input_space_and_button_come_from_the_library_parsers() {
+        let cli = Cli::try_parse_from([
+            "framewatch",
+            "input",
+            "--space",
+            "screen",
+            "click",
+            "--button",
+            "right",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Input(args) => {
+                assert_eq!(args.space, CoordSpace::Screen);
+                assert!(matches!(
+                    args.action,
+                    InputAction::Click {
+                        button: MouseButton::Right,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected input"),
+        }
+        assert!(
+            Cli::try_parse_from(["framewatch", "input", "--space", "wayland", "where"]).is_err()
+        );
+    }
+
+    #[test]
+    fn action_scripts_accept_an_array_or_one_object_per_line() {
+        let array = r#"[{"action":"click","at":[1,2]},{"action":"wait","ms":10}]"#;
+        assert_eq!(parse_action_script(array).unwrap().len(), 2);
+
+        let lines = "{\"action\":\"move\",\"to\":[1,2]}\n\n{\"action\":\"click\"}\n";
+        let actions = parse_action_script(lines).unwrap();
+        assert_eq!(actions.len(), 2, "blank lines are skipped");
+        assert_eq!(
+            actions[0],
+            MouseAction::Move {
+                to: Point::new(1, 2)
+            }
+        );
+
+        assert!(parse_action_script("   ").is_err());
+        assert!(parse_action_script("{\"action\":\"fly\"}").is_err());
+    }
+
+    #[test]
+    fn the_where_query_performs_no_actions() {
+        assert!(input_actions(InputAction::Where).unwrap().is_empty());
     }
 
     #[test]
