@@ -2,7 +2,14 @@
 //!
 //! ScreenCaptureKit is the supported replacement for the older Core Graphics
 //! screenshot APIs and requires the user to grant Screen Recording permission.
+//!
+//! Window geometry (`WindowInfo::rect`) is in points, the coordinate space
+//! macOS and its accessibility API use. Frames are captured in device pixels,
+//! at the display's backing scale factor, so a Retina window is captured at
+//! twice its point size. `WindowInfo::dpi` reports `96 x` that scale, and
+//! `WindowInfo::scale()` returns it directly.
 
+use crate::capture::backing;
 use crate::capture::{CaptureBackend, ControlFlow};
 use crate::config::Target;
 use crate::error::CaptureError;
@@ -12,7 +19,7 @@ use crossbeam_channel::{bounded, RecvTimeoutError};
 use screencapturekit::cm::CMSampleBufferExt;
 use screencapturekit::cv::CVPixelBufferLockFlags;
 use screencapturekit::prelude::*;
-use screencapturekit::shareable_content::{SCShareableContent, SCWindow};
+use screencapturekit::shareable_content::{SCShareableContent, SCShareableContentInfo, SCWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,7 +41,7 @@ impl MacosBackend {
             (info.rect.w > 0 && info.rect.h > 0 && target_matches(target, &window, &info))
                 .then_some((window, info))
         });
-        let (window, info) = match target {
+        let (window, mut info) = match target {
             Target::ByPid(_) => matches
                 .max_by_key(|(_, info)| u64::from(info.rect.w) * u64::from(info.rect.h))
                 .ok_or_else(|| CaptureError::TargetNotFound(target_name(target)))?,
@@ -44,9 +51,13 @@ impl MacosBackend {
         };
 
         let filter = SCContentFilter::create().with_window(&window).build();
+        // Size the stream in device pixels, not points, or ScreenCaptureKit
+        // downsamples a Retina window to half its real resolution (DOCW-78).
+        let scale = backing_scale(&filter);
+        info.dpi = backing::dpi_for_scale(scale);
         let configuration = SCStreamConfiguration::new()
-            .with_width(info.rect.w)
-            .with_height(info.rect.h)
+            .with_width(backing::to_pixels(info.rect.w, scale))
+            .with_height(backing::to_pixels(info.rect.h, scale))
             .with_pixel_format(PixelFormat::BGRA);
         Ok(Self {
             filter,
@@ -67,8 +78,15 @@ pub fn enumerate_windows() -> Result<Vec<WindowInfo>, CaptureError> {
     Ok(shareable_content()?
         .windows()
         .into_iter()
-        .map(|window| window_info(&window))
-        .filter(|info| info.rect.w > 0 && info.rect.h > 0)
+        .filter_map(|window| {
+            let mut info = window_info(&window);
+            if info.rect.w == 0 || info.rect.h == 0 {
+                return None;
+            }
+            let filter = SCContentFilter::create().with_window(&window).build();
+            info.dpi = backing::dpi_for_scale(backing_scale(&filter));
+            Some(info)
+        })
         .collect())
 }
 
@@ -172,6 +190,19 @@ fn shareable_content() -> Result<SCShareableContent, CaptureError> {
         .map_err(platform_error)
 }
 
+/// The point-to-pixel scale of the display a window filter captures from:
+/// 2.0 on a Retina panel. Falls back to 1.0 (point resolution) when
+/// ScreenCaptureKit reports nothing usable.
+fn backing_scale(filter: &SCContentFilter) -> f64 {
+    let from_filter = backing::sanitize_scale(f64::from(filter.point_pixel_scale()));
+    if from_filter > 1.0 {
+        return from_filter;
+    }
+    SCShareableContentInfo::for_filter(filter)
+        .map(|info| backing::sanitize_scale(f64::from(info.point_pixel_scale())))
+        .unwrap_or(from_filter)
+}
+
 #[link(name = "AppKit", kind = "framework")]
 unsafe extern "C" {
     fn NSApplicationLoad() -> bool;
@@ -192,7 +223,8 @@ fn window_info(window: &SCWindow) -> WindowInfo {
         class: "macOS".to_string(),
         rect: Rect::new(frame.origin.x as i32, frame.origin.y as i32, width, height),
         client_rect: Rect::new(0, 0, width, height),
-        dpi: 96,
+        // Replaced with the display's backing scale once a filter exists.
+        dpi: crate::frame::BASE_DPI,
         foreground: window.is_active(),
     }
 }

@@ -5,6 +5,8 @@
 pub mod mock;
 pub use mock::MockBackend;
 
+pub(crate) mod backing;
+
 #[cfg(all(target_os = "linux", feature = "linux-x11"))]
 pub mod linux;
 #[cfg(all(target_os = "macos", feature = "macos"))]

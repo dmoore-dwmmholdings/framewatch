@@ -45,13 +45,29 @@ pub struct WindowInfo {
     pub rect: Rect,
     /// Client-area bounds; ROIs are stored relative to this.
     pub client_rect: Rect,
-    /// Effective DPI for the window.
+    /// Effective DPI for the window: device pixels per inch at a 96-DPI
+    /// baseline, so `dpi / 96` is the number of captured pixels per unit of
+    /// `rect`. Windows reports the per-monitor DPI. macOS reports
+    /// `96 x` the display's backing scale factor (192 on a Retina panel),
+    /// because `rect` is in points while frames are captured in device pixels.
     pub dpi: u32,
     /// Whether the window was the foreground window.
     pub foreground: bool,
 }
 
+/// The DPI that means one captured pixel per unit of window geometry.
+pub const BASE_DPI: u32 = 96;
+
 impl WindowInfo {
+    /// Captured pixels per unit of `rect`: `dpi / 96`.
+    ///
+    /// `2.0` for a window on a macOS Retina display, whose frames are captured
+    /// at twice the size of its point-based `rect`. Never less than a nominal
+    /// positive value, so callers can divide by it.
+    pub fn scale(&self) -> f64 {
+        f64::from(self.dpi.max(1)) / f64::from(BASE_DPI)
+    }
+
     /// A minimal placeholder used by the mock backend / tests.
     pub fn synthetic(title: impl Into<String>, w: u32, h: u32) -> Self {
         Self {
@@ -201,6 +217,18 @@ mod tests {
         assert_eq!(w.title, "hi");
         assert_eq!((w.rect.w, w.rect.h, w.dpi), (100, 50, 96));
         assert!(w.foreground);
+        assert_eq!(w.scale(), 1.0);
+    }
+
+    #[test]
+    fn window_info_scale_follows_dpi() {
+        let mut w = WindowInfo::synthetic("retina", 1512, 913);
+        w.dpi = 192;
+        assert_eq!(w.scale(), 2.0);
+        w.dpi = 144;
+        assert_eq!(w.scale(), 1.5);
+        w.dpi = 0;
+        assert!(w.scale() > 0.0);
     }
 
     #[test]
