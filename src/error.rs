@@ -27,6 +27,40 @@ pub enum CaptureError {
     Decode(String),
 }
 
+/// Errors produced while driving synthetic mouse input
+/// ([`input`](crate::input)).
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum InputError {
+    /// Synthetic input is not available in this build / on this platform.
+    #[error("synthetic input is not available: {0}")]
+    Unsupported(String),
+
+    /// The OS input API rejected, blocked, or dropped the event.
+    #[error("input backend error: {0}")]
+    Backend(String),
+
+    /// A window-space point fell outside the target window's captured region.
+    /// Almost always an agent's arithmetic slip, so it is refused rather than
+    /// clicked into whatever else is on the desktop.
+    #[error(
+        "point {point} is outside the {}x{} captured region of the target window \
+         (allow it explicitly to send it anyway)",
+        .bounds.w,
+        .bounds.h
+    )]
+    OutOfBounds {
+        /// The offending point, in the request's coordinate space.
+        point: crate::input::Point,
+        /// The region it had to fall inside.
+        bounds: crate::frame::Rect,
+    },
+
+    /// The request itself is malformed (bad selector, unparsable point, ...).
+    #[error("invalid input request: {0}")]
+    Request(String),
+}
+
 /// Errors produced by a [`Sink`](crate::sink::Sink).
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -136,6 +170,10 @@ pub enum Error {
     /// A recording-runtime error.
     #[error(transparent)]
     Record(#[from] RecordError),
+
+    /// A synthetic-input error.
+    #[error(transparent)]
+    Input(#[from] InputError),
 
     /// A transcription error.
     #[error(transparent)]

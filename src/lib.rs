@@ -52,6 +52,7 @@ pub mod engine;
 pub mod error;
 pub mod event;
 pub mod frame;
+pub mod input;
 pub mod mark;
 pub mod recording;
 pub mod session;
@@ -77,9 +78,10 @@ pub use capture::{enumerate_windows, CaptureBackend, ControlFlow, MockBackend};
 pub use clock::{Clock, MockClock, SystemClock};
 pub use config::{Config, ConfigBuilder, ImageOpts, RoiHint, RoiKind, Rotation, Target};
 pub use engine::Engine;
-pub use error::{CaptureError, Error, RecordError, SinkError, TranscribeError};
+pub use error::{CaptureError, Error, InputError, RecordError, SinkError, TranscribeError};
 pub use event::{CaptureEvent, CaptureMeta, EncodedImage, EventKind, ImageFormat, SaveMask};
 pub use frame::{RawFrame, Rect, WindowInfo};
+pub use input::{CoordSpace, InputRequest, MouseAction, MouseButton, MouseOp, Point};
 pub use mark::{MarkRecord, MARK_KIND};
 #[cfg(feature = "record")]
 pub use record::{record, record_with_duration, RecordConfig, RecordOutcome};
@@ -119,6 +121,44 @@ pub fn default_backend(config: &Config) -> Result<Box<dyn CaptureBackend>, Error
         let _ = config;
         Err(Error::NoBackend(
             "live capture requires Windows with `wgc`, macOS with `macos`, or an X11 Linux session with `linux-x11`".into(),
+        ))
+    }
+}
+
+/// Resolve `target` to the window a live capture backend would capture, without
+/// starting capture.
+///
+/// Uses the same matching rules as [`default_backend`], so
+/// [`input`] acts on exactly the window a capture of the same
+/// selector would show.
+pub fn resolve_window(target: &Target) -> Result<WindowInfo, Error> {
+    #[cfg(all(windows, feature = "wgc"))]
+    {
+        Ok(capture::windows::wgc::WgcBackend::for_target(target)?
+            .window()
+            .clone())
+    }
+    #[cfg(all(target_os = "macos", feature = "macos"))]
+    {
+        Ok(capture::macos::MacosBackend::for_target(target)?
+            .window()
+            .clone())
+    }
+    #[cfg(all(target_os = "linux", feature = "linux-x11"))]
+    {
+        Ok(capture::linux::X11Backend::for_target(target)?
+            .window()
+            .clone())
+    }
+    #[cfg(not(any(
+        all(windows, feature = "wgc"),
+        all(target_os = "macos", feature = "macos"),
+        all(target_os = "linux", feature = "linux-x11")
+    )))]
+    {
+        let _ = target;
+        Err(Error::NoBackend(
+            "resolving a window requires Windows with `wgc`, macOS with `macos`, or an X11 Linux session with `linux-x11`".into(),
         ))
     }
 }
