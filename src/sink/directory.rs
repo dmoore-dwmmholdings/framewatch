@@ -87,6 +87,8 @@ Marks:
 Notes:
 - `window.rect` is `[x, y, width, height]` (NOT `[left, top, right, bottom]`), in
   virtual-desktop pixels — `x`/`y` may be negative or large on multi-monitor setups.
+  On macOS it is in points; frames are in device pixels, so a frame is
+  `window.dpi / 96` times the size of `window.rect` (2x on a Retina display).
 - If the session was captured with a crop/ROI, the saved images are that sub-region,
   while `window.rect` still describes the full source window.
 - A perfectly static target may only produce the `initial` frame (nothing to settle

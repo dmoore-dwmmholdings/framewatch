@@ -31,6 +31,29 @@ changes bump the minor version).
 - **`framewatch::resolve_window(&target)`**, which reports the window a capture
   of the same selector would use, without starting one.
 
+## [0.9.0] - 2026-11-19
+
+### Changed
+
+- **macOS captures at native pixel resolution.** ScreenCaptureKit streams were
+  sized from the window's frame in points, so a window on a Retina display was
+  captured at half its real resolution (a 1512x913 pt window gave a 1512x913
+  frame instead of 3024x1826). Streams are now sized in device pixels at the
+  display's backing scale factor. Frames from a Retina window are twice as
+  large in each dimension as before; `--roi`/`crop` coordinates are in these
+  frame pixels.
+- **`WindowInfo.dpi` reports the real backing scale on macOS.** It was a
+  constant 96. It is now `96 x` the display's point-to-pixel scale (192 on a
+  Retina display), in `windows`, the session timeline and `session.json`.
+  `WindowInfo.rect` stays in points, the coordinate space macOS and its
+  accessibility API use, so `dpi / 96` is captured pixels per point.
+
+### Added
+
+- `WindowInfo::scale()` returns `dpi / 96`, the number of captured pixels per
+  unit of `rect`, and `framewatch::frame::BASE_DPI` names the 96 baseline.
+  To keep point-resolution output, set `image.scale` to `1 / scale()`.
+
 ## [0.8.5] - 2026-08-24
 
 ### Fixed

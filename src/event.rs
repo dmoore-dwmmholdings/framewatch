@@ -182,7 +182,8 @@ pub struct WindowMeta {
     pub hwnd: isize,
     /// `[x, y, w, h]` window bounds.
     pub rect: [i32; 4],
-    /// Window DPI.
+    /// Window DPI. `dpi / 96` is captured pixels per unit of `rect`
+    /// (192 for a macOS Retina window, whose `rect` is in points).
     pub dpi: u32,
     /// Whether the window was foreground.
     pub foreground: bool,
